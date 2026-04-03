@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  viking-go:
+    build: .
+    container_name: viking-go
+    restart: unless-stopped
+    ports:
+      - "6920:6920"
+    volumes:
+      - viking-data:/data
+      - ${WATCH_SOURCE:-/dev/null}:/watch-source:ro
+    environment:
+      - VIKING_DATA_DIR=/data
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "6920"
+      - "--config"
+      - "/data/config.json"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:6920/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  viking-data:

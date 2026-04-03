@@ -10,6 +10,7 @@ import (
 
 	"github.com/ximilala/viking-go/internal/agent"
 	"github.com/ximilala/viking-go/internal/config"
+	"github.com/ximilala/viking-go/internal/console"
 	"github.com/ximilala/viking-go/internal/embedder"
 	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/llm"
@@ -191,6 +192,8 @@ func main() {
 		mux.Handle(mcpPath, httpHandler)
 		mux.Handle(mcpPath+"/", httpHandler)
 		mux.Handle("/metrics", metrics.Handler())
+		mux.Handle("/console/", http.StripPrefix("/console/", console.Handler()))
+		mux.Handle("/console", http.RedirectHandler("/console/", http.StatusMovedPermanently))
 		mux.Handle("/", srv)
 
 		log.Printf("MCP server enabled at %s%s", addr, mcpPath)
@@ -206,6 +209,8 @@ func main() {
 	} else {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", metrics.Handler())
+		mux.Handle("/console/", http.StripPrefix("/console/", console.Handler()))
+		mux.Handle("/console", http.RedirectHandler("/console/", http.StatusMovedPermanently))
 		mux.Handle("/", srv)
 
 		log.Printf("viking-go API listening on %s", addr)

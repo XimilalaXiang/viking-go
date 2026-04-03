@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viking-Go Console</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e4e6ef;
+  --muted: #8b8fa3;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --radius: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+header h1 { font-size: 1.5rem; font-weight: 600; }
+header h1 span { color: var(--accent); }
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.status-badge.online { background: rgba(34,197,94,0.15); color: var(--success); }
+.status-badge.offline { background: rgba(239,68,68,0.15); color: var(--error); }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.panel { display: none; }
+.panel.active { display: block; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.card-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.card-value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
+.card-value.accent { color: var(--accent); }
+
+.search-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+input, textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+input:focus, textarea:focus { border-color: var(--accent); }
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+button:hover { background: var(--accent-hover); }
+button.secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+button.secondary:hover { border-color: var(--accent); }
+
+.results {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.result-item {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.result-item:last-child { border-bottom: none; }
+.result-item .uri { color: var(--accent); font-weight: 500; }
+.result-item .score { color: var(--warning); font-size: 0.8rem; }
+.result-item .abstract { color: var(--muted); margin-top: 4px; font-size: 0.85rem; }
+.result-item .type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.type-badge.memory { background: rgba(99,102,241,0.15); color: var(--accent); }
+.type-badge.resource { background: rgba(34,197,94,0.15); color: var(--success); }
+.type-badge.skill { background: rgba(245,158,11,0.15); color: var(--warning); }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+
+.tree-item { padding: 4px 0; font-family: monospace; font-size: 0.85rem; }
+.tree-dir { color: var(--accent); font-weight: 500; }
+
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+
+.row { display: flex; gap: 12px; }
+.row > * { flex: 1; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span>Viking</span>-Go Console</h1>
+    <span id="status-badge" class="status-badge offline">Checking...</span>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="search">Search</button>
+    <button class="tab" data-tab="browse">Browse</button>
+    <button class="tab" data-tab="watch">Watch</button>
+    <button class="tab" data-tab="metrics">Metrics</button>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="panel active">
+    <div class="grid" id="stats-grid"></div>
+    <div class="card">
+      <div class="card-label">Queue Status</div>
+      <div id="queue-stats" style="margin-top:8px;font-size:0.9rem;color:var(--muted)">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div id="search" class="panel">
+    <div class="search-box">
+      <input type="text" id="search-query" placeholder="Enter your query...">
+      <button onclick="doSearch()">Search</button>
+    </div>
+    <div id="search-results" class="results">Enter a query and press Search</div>
+  </div>
+
+  <!-- Browse -->
+  <div id="browse" class="panel">
+    <div class="search-box">
+      <input type="text" id="browse-uri" placeholder="viking://" value="viking://">
+      <button onclick="doBrowse()">List</button>
+      <button class="secondary" onclick="doTree()">Tree</button>
+    </div>
+    <div id="browse-results" class="results">Click List or Tree to browse</div>
+  </div>
+
+  <!-- Watch -->
+  <div id="watch" class="panel">
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-label">Create Watch Task</div>
+      <div class="row" style="margin-top:12px">
+        <div class="form-group">
+          <label>Source Path</label>
+          <input type="text" id="watch-source" placeholder="/path/to/directory">
+        </div>
+        <div class="form-group">
+          <label>Target URI</label>
+          <input type="text" id="watch-target" placeholder="viking://resources/my-docs">
+        </div>
+        <div class="form-group">
+          <label>Interval (min)</label>
+          <input type="number" id="watch-interval" value="60" style="width:100px">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end">
+          <button onclick="createWatch()">Create</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Active Tasks</div>
+      <div id="watch-list" style="margin-top:12px">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div id="metrics" class="panel">
+    <button onclick="loadMetrics()" style="margin-bottom:16px">Refresh</button>
+    <div id="metrics-output" class="results">Click Refresh to load metrics</div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  });
+});
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  return res.json();
+}
+
+async function loadDashboard() {
+  try {
+    const health = await fetch(API + '/health').then(r => r.json());
+    const badge = document.getElementById('status-badge');
+    badge.textContent = health.status === 'ok' ? 'Online' : 'Offline';
+    badge.className = 'status-badge ' + (health.status === 'ok' ? 'online' : 'offline');
+
+    const stats = await api('GET', '/api/v1/system/status');
+    const grid = document.getElementById('stats-grid');
+    grid.innerHTML = '';
+    const items = [
+      ['Total Contexts', stats.total_contexts || 0],
+      ['Memories', stats.memory_count || 0],
+      ['Resources', stats.resource_count || 0],
+      ['Vector Dimensions', stats.vector_dimension || 0],
+    ];
+    if (stats.contexts_by_type) {
+      for (const [k, v] of Object.entries(stats.contexts_by_type)) {
+        items.push([k, v]);
+      }
+    }
+    items.forEach(([label, value]) => {
+      grid.innerHTML += `<div class="card"><div class="card-label">${label}</div><div class="card-value accent">${value}</div></div>`;
+    });
+  } catch (e) {
+    document.getElementById('status-badge').textContent = 'Offline';
+    document.getElementById('status-badge').className = 'status-badge offline';
+  }
+}
+
+async function doSearch() {
+  const query = document.getElementById('search-query').value;
+  if (!query) return;
+  const el = document.getElementById('search-results');
+  el.textContent = 'Searching...';
+  try {
+    const result = await api('POST', '/api/v1/search/find', { query, limit: 20 });
+    const all = [...(result.memories||[]), ...(result.resources||[]), ...(result.skills||[])];
+    if (all.length === 0) {
+      el.textContent = 'No results found.';
+      return;
+    }
+    el.innerHTML = all.map(m => {
+      const typeClass = m.context_type || 'resource';
+      return `<div class="result-item">
+        <span class="type-badge ${typeClass}">${typeClass}</span>
+        <span class="score">[${(m.score||0).toFixed(3)}]</span>
+        <div class="uri">${m.uri}</div>
+        <div class="abstract">${m.abstract || ''}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    el.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function doBrowse() {
+  const uri = document.getElementById('browse-uri').value || 'viking://';
+  const el = document.getElementById('browse-results');
+  el.textContent = 'Loading...';
+  try {
+    const entries = await api('GET', '/api/v1/fs/ls?uri=' + encodeURIComponent(uri));
+    if (!entries || entries.length === 0) {
+      el.textContent = 'Empty directory.';
+      return;
+    }
+    el.innerHTML = '<table><tr><th>Name</th><th>Type</th><th>Size</th><th>URI</th></tr>' +
+      entries.map(e => `<tr>
+        <td>${e.isDir ? '📁' : '📄'} ${e.name}</td>
+        <td>${e.isDir ? 'DIR' : 'FILE'}</td>
+        <td>${e.size || 0}</td>
+        <td style="color:var(--accent);cursor:pointer" onclick="document.getElementById('browse-uri').value='${e.uri}';doBrowse()">${e.uri}</td>
+      </tr>`).join('') + '</table>';
+  } catch (e) {
+    el.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function doTree() {
+  const uri = document.getElementById('browse-uri').value || 'viking://';
+  const el = document.getElementById('browse-results');
+  el.textContent = 'Loading...';
+  try {
+    const entries = await api('GET', '/api/v1/fs/tree?uri=' + encodeURIComponent(uri) + '&level_limit=3&node_limit=200');
+    if (!entries || entries.length === 0) {
+      el.textContent = 'Empty tree.';
+      return;
+    }
+    el.innerHTML = entries.map(e => {
+      const depth = (e.rel_path || '').split('/').length - 1;
+      const indent = '  '.repeat(depth);
+      const cls = e.isDir ? 'tree-dir' : '';
+      const suffix = e.isDir ? '/' : '';
+      const abstract = e.abstract ? ' — ' + e.abstract.substring(0, 60) : '';
+      return `<div class="tree-item">${indent}<span class="${cls}">${e.name}${suffix}</span><span style="color:var(--muted)">${abstract}</span></div>`;
+    }).join('');
+  } catch (e) {
+    el.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function loadWatchList() {
+  try {
+    const tasks = await api('GET', '/api/v1/watch');
+    const el = document.getElementById('watch-list');
+    if (!tasks || tasks.length === 0) {
+      el.textContent = 'No watch tasks.';
+      return;
+    }
+    el.innerHTML = '<table><tr><th>ID</th><th>Source</th><th>Target</th><th>Interval</th><th>Files</th><th>Status</th><th></th></tr>' +
+      tasks.map(t => `<tr>
+        <td style="font-family:monospace;font-size:0.75rem">${(t.id||'').substring(0,8)}...</td>
+        <td>${t.source_path}</td>
+        <td style="color:var(--accent)">${t.target_uri}</td>
+        <td>${t.interval_minutes}m</td>
+        <td>${Object.keys(t.file_hashes||{}).length}</td>
+        <td>${t.active ? '<span style="color:var(--success)">Active</span>' : '<span style="color:var(--muted)">Inactive</span>'}</td>
+        <td><button class="secondary" style="padding:4px 8px;font-size:0.75rem" onclick="cancelWatch('${t.id}')">Cancel</button></td>
+      </tr>`).join('') + '</table>';
+  } catch (e) {
+    document.getElementById('watch-list').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function createWatch() {
+  const source = document.getElementById('watch-source').value;
+  const target = document.getElementById('watch-target').value;
+  const interval = parseInt(document.getElementById('watch-interval').value) || 60;
+  if (!source || !target) { alert('Source path and target URI are required'); return; }
+  try {
+    await api('POST', '/api/v1/watch', { source_path: source, target_uri: target, interval_minutes: interval });
+    loadWatchList();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function cancelWatch(id) {
+  try {
+    await fetch(API + '/api/v1/watch/' + id, { method: 'DELETE' });
+    loadWatchList();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function loadMetrics() {
+  try {
+    const text = await fetch(API + '/metrics').then(r => r.text());
+    document.getElementById('metrics-output').textContent = text;
+  } catch (e) {
+    document.getElementById('metrics-output').textContent = 'Error: ' + e.message;
+  }
+}
+
+loadDashboard();
+loadWatchList();
+document.getElementById('search-query').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+document.getElementById('browse-uri').addEventListener('keydown', e => { if (e.key === 'Enter') doBrowse(); });
+setInterval(loadDashboard, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+!README.md
+console/node_modules
+console/dist
