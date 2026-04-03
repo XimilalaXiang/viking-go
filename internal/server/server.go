@@ -78,7 +78,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/fs/tree", s.withAuth(s.handleTree))
 	s.mux.HandleFunc("GET /api/v1/fs/stat", s.withAuth(s.handleStat))
 	s.mux.HandleFunc("POST /api/v1/fs/mkdir", s.withAuth(s.handleMkdir))
-	s.mux.HandleFunc("DELETE /api/v1/fs", s.withAuth(s.handleRm))
+	s.mux.HandleFunc("DELETE /api/v1/fs", s.withAuth(s.handleRmQuery))
+	s.mux.HandleFunc("POST /api/v1/fs/rm", s.withAuth(s.handleRm))
 	s.mux.HandleFunc("POST /api/v1/fs/mv", s.withAuth(s.handleMv))
 
 	// Sessions
@@ -437,7 +438,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
-func (s *Server) handleRm(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRmQuery(w http.ResponseWriter, r *http.Request) {
 	uri := r.URL.Query().Get("uri")
 	recursive := r.URL.Query().Get("recursive") == "true"
 	if uri == "" {
@@ -451,9 +452,31 @@ func (s *Server) handleRm(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+func (s *Server) handleRm(w http.ResponseWriter, r *http.Request) {
+	var req rmRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.URI == "" {
+		writeError(w, http.StatusBadRequest, "missing uri")
+		return
+	}
+	if err := s.vfs.Rm(req.URI, req.Recursive, s.reqCtx(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
 type mvRequest struct {
-	OldURI string `json:"old_uri"`
-	NewURI string `json:"new_uri"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type rmRequest struct {
+	URI       string `json:"uri"`
+	Recursive bool   `json:"recursive"`
 }
 
 func (s *Server) handleMv(w http.ResponseWriter, r *http.Request) {
@@ -462,7 +485,11 @@ func (s *Server) handleMv(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if err := s.vfs.Mv(req.OldURI, req.NewURI, s.reqCtx(r)); err != nil {
+	if req.From == "" || req.To == "" {
+		writeError(w, http.StatusBadRequest, "from and to are required")
+		return
+	}
+	if err := s.vfs.Mv(req.From, req.To, s.reqCtx(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
