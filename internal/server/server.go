@@ -10,30 +10,36 @@ import (
 	"time"
 
 	ctx "github.com/ximilala/viking-go/internal/context"
+	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/retriever"
+	"github.com/ximilala/viking-go/internal/session"
 	"github.com/ximilala/viking-go/internal/storage"
 	"github.com/ximilala/viking-go/internal/vikingfs"
 )
 
 // Server is the HTTP API server for viking-go.
 type Server struct {
-	store     *storage.Store
-	vfs       *vikingfs.VikingFS
-	retriever *retriever.HierarchicalRetriever
-	mux       *http.ServeMux
-	authMode  string
-	rootKey   string
+	store      *storage.Store
+	vfs        *vikingfs.VikingFS
+	retriever  *retriever.HierarchicalRetriever
+	indexer    *indexer.Indexer
+	sessionMgr *session.Manager
+	mux        *http.ServeMux
+	authMode   string
+	rootKey    string
 }
 
 // NewServer creates a new API server.
-func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, authMode, rootKey string) *Server {
+func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, authMode, rootKey string) *Server {
 	s := &Server{
-		store:     store,
-		vfs:       vfs,
-		retriever: ret,
-		mux:       http.NewServeMux(),
-		authMode:  authMode,
-		rootKey:   rootKey,
+		store:      store,
+		vfs:        vfs,
+		retriever:  ret,
+		indexer:    idx,
+		sessionMgr: session.NewManager(vfs),
+		mux:        http.NewServeMux(),
+		authMode:   authMode,
+		rootKey:    rootKey,
 	}
 	s.registerRoutes()
 	return s
@@ -65,6 +71,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/content/abstract", s.withAuth(s.handleAbstract))
 	s.mux.HandleFunc("GET /api/v1/content/overview", s.withAuth(s.handleOverview))
 	s.mux.HandleFunc("POST /api/v1/content/write", s.withAuth(s.handleWrite))
+	s.mux.HandleFunc("POST /api/v1/content/reindex", s.withAuth(s.handleReindex))
 
 	// Filesystem
 	s.mux.HandleFunc("GET /api/v1/fs/ls", s.withAuth(s.handleLs))
@@ -73,6 +80,15 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/fs/mkdir", s.withAuth(s.handleMkdir))
 	s.mux.HandleFunc("DELETE /api/v1/fs", s.withAuth(s.handleRm))
 	s.mux.HandleFunc("POST /api/v1/fs/mv", s.withAuth(s.handleMv))
+
+	// Sessions
+	s.mux.HandleFunc("POST /api/v1/sessions", s.withAuth(s.handleCreateSession))
+	s.mux.HandleFunc("GET /api/v1/sessions", s.withAuth(s.handleListSessions))
+	s.mux.HandleFunc("GET /api/v1/sessions/{id}", s.withAuth(s.handleGetSession))
+	s.mux.HandleFunc("GET /api/v1/sessions/{id}/context", s.withAuth(s.handleGetSessionContext))
+	s.mux.HandleFunc("POST /api/v1/sessions/{id}/messages", s.withAuth(s.handleAddMessage))
+	s.mux.HandleFunc("POST /api/v1/sessions/{id}/commit", s.withAuth(s.handleCommitSession))
+	s.mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.withAuth(s.handleDeleteSession))
 
 	// Relations
 	s.mux.HandleFunc("GET /api/v1/relations", s.withAuth(s.handleRelations))
@@ -326,6 +342,34 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+// --- Indexer handlers ---
+
+type reindexRequest struct {
+	URI string `json:"uri"`
+}
+
+func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
+	var req reindexRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.URI == "" {
+		writeError(w, http.StatusBadRequest, "missing uri")
+		return
+	}
+	if s.indexer == nil {
+		writeError(w, http.StatusServiceUnavailable, "indexer not available (no embedder configured)")
+		return
+	}
+	result, err := s.indexer.IndexDirectory(req.URI, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // --- Filesystem handlers ---
 
 func (s *Server) handleLs(w http.ResponseWriter, r *http.Request) {
@@ -472,6 +516,100 @@ func (s *Server) handleUnlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.vfs.Unlink(req.FromURI, req.URI, s.reqCtx(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+// --- Session handlers ---
+
+func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := s.sessionMgr.Create(s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session_id": sessionID})
+}
+
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.sessionMgr.List(s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if sessions == nil {
+		sessions = []session.SessionInfo{}
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	info, err := s.sessionMgr.Get(id, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) handleGetSessionContext(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	data, err := s.sessionMgr.GetContext(id, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
+}
+
+type addMessageRequest struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req addMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.Role == "" || req.Content == "" {
+		writeError(w, http.StatusBadRequest, "role and content are required")
+		return
+	}
+	if err := s.sessionMgr.AddMessage(id, req.Role, req.Content, s.reqCtx(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+type commitRequest struct {
+	Summary string `json:"summary"`
+}
+
+func (s *Server) handleCommitSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req commitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	archive, err := s.sessionMgr.Commit(id, req.Summary, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, archive)
+}
+
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.sessionMgr.Delete(id, s.reqCtx(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

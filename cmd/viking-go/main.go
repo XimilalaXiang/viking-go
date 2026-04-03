@@ -8,6 +8,7 @@ import (
 
 	"github.com/ximilala/viking-go/internal/config"
 	"github.com/ximilala/viking-go/internal/embedder"
+	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/server"
 	"github.com/ximilala/viking-go/internal/storage"
@@ -110,8 +111,15 @@ func main() {
 	// Initialize retriever
 	ret := retriever.NewHierarchicalRetriever(store, emb, reranker, cfg.Rerank.Threshold)
 
+	// Initialize indexer
+	var idx *indexer.Indexer
+	if emb != nil {
+		idx = indexer.New(store, vfs, emb)
+		log.Println("Indexer initialized")
+	}
+
 	// Start server
-	srv := server.NewServer(store, vfs, ret, cfg.Server.AuthMode, cfg.Server.RootAPIKey)
+	srv := server.NewServer(store, vfs, ret, idx, cfg.Server.AuthMode, cfg.Server.RootAPIKey)
 	addr := server.Addr(cfg.Server.Host, cfg.Server.Port)
 	if err := srv.ListenAndServe(addr); err != nil {
 		log.Fatalf("Server error: %v", err)
