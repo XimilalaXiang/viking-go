@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ximilala/viking-go/internal/agent"
 	ctx "github.com/ximilala/viking-go/internal/context"
 	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/session"
 	"github.com/ximilala/viking-go/internal/storage"
 	"github.com/ximilala/viking-go/internal/vikingfs"
+	"github.com/ximilala/viking-go/internal/watch"
 )
 
 // Server is the HTTP API server for viking-go.
@@ -24,22 +26,26 @@ type Server struct {
 	retriever  *retriever.HierarchicalRetriever
 	indexer    *indexer.Indexer
 	sessionMgr *session.Manager
+	watchMgr   *watch.Manager
+	agentBridge *agent.Bridge
 	mux        *http.ServeMux
 	authMode   string
 	rootKey    string
 }
 
 // NewServer creates a new API server.
-func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, authMode, rootKey string) *Server {
+func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, authMode, rootKey string, watchMgr *watch.Manager, bridge *agent.Bridge) *Server {
 	s := &Server{
-		store:      store,
-		vfs:        vfs,
-		retriever:  ret,
-		indexer:    idx,
-		sessionMgr: session.NewManager(vfs),
-		mux:        http.NewServeMux(),
-		authMode:   authMode,
-		rootKey:    rootKey,
+		store:       store,
+		vfs:         vfs,
+		retriever:   ret,
+		indexer:     idx,
+		sessionMgr:  session.NewManager(vfs),
+		watchMgr:    watchMgr,
+		agentBridge: bridge,
+		mux:         http.NewServeMux(),
+		authMode:    authMode,
+		rootKey:     rootKey,
 	}
 	s.registerRoutes()
 	return s
@@ -95,6 +101,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/relations", s.withAuth(s.handleRelations))
 	s.mux.HandleFunc("POST /api/v1/relations/link", s.withAuth(s.handleLink))
 	s.mux.HandleFunc("DELETE /api/v1/relations/link", s.withAuth(s.handleUnlink))
+
+	// Watch
+	s.mux.HandleFunc("POST /api/v1/watch", s.withAuth(s.handleWatchCreate))
+	s.mux.HandleFunc("GET /api/v1/watch", s.withAuth(s.handleWatchList))
+	s.mux.HandleFunc("DELETE /api/v1/watch/{id}", s.withAuth(s.handleWatchCancel))
+
+	// Agent bridge
+	s.mux.HandleFunc("POST /api/v1/agent/start", s.withAuth(s.handleAgentStart))
+	s.mux.HandleFunc("POST /api/v1/agent/end", s.withAuth(s.handleAgentEnd))
+	s.mux.HandleFunc("POST /api/v1/agent/compact", s.withAuth(s.handleAgentCompact))
 }
 
 // --- Auth middleware ---
@@ -641,6 +657,119 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+// --- Watch handlers ---
+
+type watchCreateRequest struct {
+	SourcePath      string  `json:"source_path"`
+	TargetURI       string  `json:"target_uri"`
+	IntervalMinutes float64 `json:"interval_minutes"`
+	Reason          string  `json:"reason"`
+}
+
+func (s *Server) handleWatchCreate(w http.ResponseWriter, r *http.Request) {
+	if s.watchMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "watch manager not initialized")
+		return
+	}
+	var req watchCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.SourcePath == "" || req.TargetURI == "" {
+		writeError(w, http.StatusBadRequest, "source_path and target_uri are required")
+		return
+	}
+	if req.IntervalMinutes <= 0 {
+		req.IntervalMinutes = 60
+	}
+	id, err := s.watchMgr.Create(req.SourcePath, req.TargetURI, req.Reason, req.IntervalMinutes, true)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"task_id": id})
+}
+
+func (s *Server) handleWatchList(w http.ResponseWriter, r *http.Request) {
+	if s.watchMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "watch manager not initialized")
+		return
+	}
+	activeOnly := r.URL.Query().Get("active_only") != "false"
+	tasks := s.watchMgr.List(activeOnly)
+	writeJSON(w, http.StatusOK, tasks)
+}
+
+func (s *Server) handleWatchCancel(w http.ResponseWriter, r *http.Request) {
+	if s.watchMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "watch manager not initialized")
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.watchMgr.Cancel(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
+}
+
+// --- Agent bridge handlers ---
+
+func (s *Server) handleAgentStart(w http.ResponseWriter, r *http.Request) {
+	if s.agentBridge == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent bridge not initialized")
+		return
+	}
+	var req agent.StartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	resp, err := s.agentBridge.BeforeAgentStart(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleAgentEnd(w http.ResponseWriter, r *http.Request) {
+	if s.agentBridge == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent bridge not initialized")
+		return
+	}
+	var req agent.EndRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	resp, err := s.agentBridge.AfterAgentEnd(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleAgentCompact(w http.ResponseWriter, r *http.Request) {
+	if s.agentBridge == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent bridge not initialized")
+		return
+	}
+	var req agent.CompactRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	resp, err := s.agentBridge.BeforeCompaction(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- Helpers ---

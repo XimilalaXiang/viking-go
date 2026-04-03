@@ -4,16 +4,25 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"time"
 
+	"github.com/ximilala/viking-go/internal/agent"
 	"github.com/ximilala/viking-go/internal/config"
 	"github.com/ximilala/viking-go/internal/embedder"
 	"github.com/ximilala/viking-go/internal/indexer"
+	"github.com/ximilala/viking-go/internal/llm"
+	"github.com/ximilala/viking-go/internal/mcpserver"
+	"github.com/ximilala/viking-go/internal/memory"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/server"
+	"github.com/ximilala/viking-go/internal/session"
 	"github.com/ximilala/viking-go/internal/storage"
 	"github.com/ximilala/viking-go/internal/vikingfs"
+	"github.com/ximilala/viking-go/internal/watch"
 
+	mcphttp "github.com/mark3labs/mcp-go/server"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -118,10 +127,74 @@ func main() {
 		log.Println("Indexer initialized")
 	}
 
-	// Start server
-	srv := server.NewServer(store, vfs, ret, idx, cfg.Server.AuthMode, cfg.Server.RootAPIKey)
+	// Initialize LLM client (for memory extraction)
+	var llmClient llm.Client
+	if cfg.LLM.APIKey != "" || cfg.LLM.APIBase != "" {
+		llmClient = llm.NewClient(llm.Config{
+			Provider: cfg.LLM.Provider,
+			Model:    cfg.LLM.Model,
+			APIKey:   cfg.LLM.APIKey,
+			APIBase:  cfg.LLM.APIBase,
+		})
+		log.Printf("LLM client initialized: %s/%s", cfg.LLM.Provider, cfg.LLM.Model)
+	}
+
+	// Initialize memory extractor
+	var memExtractor *memory.Extractor
+	if llmClient != nil {
+		memExtractor = memory.NewExtractor(llmClient, vfs)
+		log.Println("Memory extractor initialized")
+	}
+
+	// Initialize session manager and agent bridge
+	sessionMgr := session.NewManager(vfs)
+	var bridge *agent.Bridge
+	bridge = agent.NewBridge(store, vfs, ret, sessionMgr, memExtractor)
+	log.Println("Agent bridge initialized")
+
+	// Initialize watch scheduler
+	watchMgr := watch.NewManager(vfs)
+	var watchSched *watch.Scheduler
+	if idx != nil {
+		watchSched = watch.NewScheduler(watchMgr, idx, vfs)
+		watchSched.Start()
+		defer watchSched.Stop()
+	}
+
+	// Build HTTP mux: REST API + optional MCP endpoint
+	srv := server.NewServer(store, vfs, ret, idx, cfg.Server.AuthMode, cfg.Server.RootAPIKey, watchMgr, bridge)
 	addr := server.Addr(cfg.Server.Host, cfg.Server.Port)
-	if err := srv.ListenAndServe(addr); err != nil {
-		log.Fatalf("Server error: %v", err)
+
+	if cfg.Server.MCPEnabled {
+		mcpSrv := mcpserver.New(store, vfs, ret, idx, watchMgr)
+		mcpPath := cfg.Server.MCPPath
+		if mcpPath == "" {
+			mcpPath = "/mcp"
+		}
+
+		httpHandler := mcphttp.NewStreamableHTTPServer(mcpSrv.MCPServerInstance(),
+			mcphttp.WithEndpointPath(mcpPath),
+			mcphttp.WithSessionIdleTTL(10*time.Minute),
+		)
+
+		mux := http.NewServeMux()
+		mux.Handle(mcpPath, httpHandler)
+		mux.Handle(mcpPath+"/", httpHandler)
+		mux.Handle("/", srv)
+
+		log.Printf("MCP server enabled at %s%s", addr, mcpPath)
+		log.Printf("viking-go API listening on %s", addr)
+
+		httpSrv := &http.Server{
+			Addr:    addr,
+			Handler: mux,
+		}
+		if err := httpSrv.ListenAndServe(); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+	} else {
+		if err := srv.ListenAndServe(addr); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
 	}
 }

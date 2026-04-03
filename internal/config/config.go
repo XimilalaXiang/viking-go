@@ -21,6 +21,8 @@ type ServerConfig struct {
 	Port       int    `json:"port"`
 	AuthMode   string `json:"auth_mode"`
 	RootAPIKey string `json:"root_api_key"`
+	MCPEnabled bool   `json:"mcp_enabled"`
+	MCPPath    string `json:"mcp_path"`
 }
 
 type StorageConfig struct {
@@ -58,9 +60,11 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		Server: ServerConfig{
-			Host:     "127.0.0.1",
-			Port:     6920,
-			AuthMode: "dev",
+			Host:       "127.0.0.1",
+			Port:       6920,
+			AuthMode:   "dev",
+			MCPEnabled: true,
+			MCPPath:    "/mcp",
 		},
 		Storage: StorageConfig{
 			DataDir: dataDir,

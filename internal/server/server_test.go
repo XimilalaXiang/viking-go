@@ -29,7 +29,7 @@ func testServer(t *testing.T) *Server {
 	}
 
 	ret := retriever.NewHierarchicalRetriever(store, nil, nil, 0)
-	return NewServer(store, vfs, ret, nil, "dev", "")
+	return NewServer(store, vfs, ret, nil, "dev", "", nil, nil)
 }
 
 func TestHealthEndpoint(t *testing.T) {
