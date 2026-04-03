@@ -7,6 +7,7 @@ import (
 
 	ctx "github.com/ximilala/viking-go/internal/context"
 	"github.com/ximilala/viking-go/internal/embedder"
+	"github.com/ximilala/viking-go/internal/metrics"
 	"github.com/ximilala/viking-go/internal/storage"
 	"github.com/ximilala/viking-go/internal/vikingfs"
 	vikinguri "github.com/ximilala/viking-go/pkg/uri"
@@ -234,10 +235,13 @@ func (idx *Indexer) vectorizeAndStore(
 	level int, isLeaf bool,
 	accountID, ownerSpace string,
 ) error {
+	metrics.Inc("viking_embedding_requests_total")
 	embResult, err := idx.embedder.Embed(truncateText(embedText, maxEmbedInputChars), false)
 	if err != nil {
+		metrics.Inc("viking_embedding_errors_total")
 		return fmt.Errorf("embed: %w", err)
 	}
+	metrics.Inc("viking_index_upserts_total")
 
 	c := ctx.NewContext(uri,
 		ctx.WithAbstract(abstract),

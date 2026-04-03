@@ -9,6 +9,7 @@ import (
 
 	ctx "github.com/ximilala/viking-go/internal/context"
 	"github.com/ximilala/viking-go/internal/indexer"
+	"github.com/ximilala/viking-go/internal/queue"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/storage"
 	"github.com/ximilala/viking-go/internal/vikingfs"
@@ -25,11 +26,12 @@ type MCPServer struct {
 	retriever *retriever.HierarchicalRetriever
 	indexer   *indexer.Indexer
 	watchMgr  *watch.Manager
+	embQueue  *queue.EmbeddingQueue
 	mcpSrv    *server.MCPServer
 }
 
 // New creates a new MCPServer with all viking-go MCP tools registered.
-func New(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, watchMgr *watch.Manager) *MCPServer {
+func New(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, watchMgr *watch.Manager, embQueue *queue.EmbeddingQueue) *MCPServer {
 	mcpSrv := server.NewMCPServer("viking-go", "0.1.0",
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, false),
@@ -41,6 +43,7 @@ func New(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.Hierarchic
 		retriever: ret,
 		indexer:   idx,
 		watchMgr:  watchMgr,
+		embQueue:  embQueue,
 		mcpSrv:    mcpSrv,
 	}
 
@@ -132,6 +135,14 @@ func (ms *MCPServer) registerTools() {
 			mcp.WithDescription("Get viking-go system status including storage statistics."),
 		),
 		ms.handleStatus,
+	)
+
+	// --- queue_status: Embedding queue status ---
+	ms.mcpSrv.AddTool(
+		mcp.NewTool("queue_status",
+			mcp.WithDescription("Get the status of the background embedding queue (pending, running, completed, failed jobs)."),
+		),
+		ms.handleQueueStatus,
 	)
 
 	// --- watch_create: Create a directory watch task ---
@@ -246,9 +257,23 @@ func (ms *MCPServer) handleAddResource(_ context.Context, req mcp.CallToolReques
 	}
 
 	reindex := boolArg(req, "reindex", true)
-	if reindex && ms.indexer != nil {
+	if reindex {
 		parentURI := parentOf(uri)
-		if parentURI != "" {
+		if parentURI == "" {
+			parentURI = uri
+		}
+
+		// Prefer async queue if available
+		if ms.embQueue != nil {
+			if err := ms.embQueue.Enqueue(parentURI, reqCtx); err != nil {
+				log.Printf("[MCP] queue enqueue warning: %v", err)
+			} else {
+				return mcp.NewToolResultText(fmt.Sprintf("Content written to %s. Indexing queued (async).", uri)), nil
+			}
+		}
+
+		// Fallback to sync indexing
+		if ms.indexer != nil {
 			idxResult, err := ms.indexer.IndexDirectory(parentURI, reqCtx)
 			if err != nil {
 				log.Printf("[MCP] reindex warning: %v", err)
@@ -352,6 +377,20 @@ func (ms *MCPServer) handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mc
 
 	b, _ := json.MarshalIndent(stats, "", "  ")
 	return mcp.NewToolResultText(fmt.Sprintf("Viking-Go Status:\n%s", string(b))), nil
+}
+
+// --- Queue handler ---
+
+func (ms *MCPServer) handleQueueStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if ms.embQueue == nil {
+		return mcp.NewToolResultText("Embedding queue not initialized (no embedder configured)"), nil
+	}
+
+	stats := ms.embQueue.Stats()
+	return mcp.NewToolResultText(fmt.Sprintf(
+		"Embedding Queue Status:\n  Pending: %d\n  Running: %d\n  Completed: %d\n  Failed: %d",
+		stats.Pending, stats.Running, stats.Completed, stats.Failed,
+	)), nil
 }
 
 // --- Watch handlers ---

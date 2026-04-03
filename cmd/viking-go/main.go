@@ -15,6 +15,8 @@ import (
 	"github.com/ximilala/viking-go/internal/llm"
 	"github.com/ximilala/viking-go/internal/mcpserver"
 	"github.com/ximilala/viking-go/internal/memory"
+	"github.com/ximilala/viking-go/internal/metrics"
+	"github.com/ximilala/viking-go/internal/queue"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/server"
 	"github.com/ximilala/viking-go/internal/session"
@@ -152,6 +154,14 @@ func main() {
 	bridge = agent.NewBridge(store, vfs, ret, sessionMgr, memExtractor)
 	log.Println("Agent bridge initialized")
 
+	// Initialize embedding queue
+	var embQueue *queue.EmbeddingQueue
+	if idx != nil {
+		embQueue = queue.NewEmbeddingQueue(idx, 2, 1000)
+		embQueue.Start()
+		defer embQueue.Stop()
+	}
+
 	// Initialize watch scheduler
 	watchMgr := watch.NewManager(vfs)
 	var watchSched *watch.Scheduler
@@ -166,7 +176,7 @@ func main() {
 	addr := server.Addr(cfg.Server.Host, cfg.Server.Port)
 
 	if cfg.Server.MCPEnabled {
-		mcpSrv := mcpserver.New(store, vfs, ret, idx, watchMgr)
+		mcpSrv := mcpserver.New(store, vfs, ret, idx, watchMgr, embQueue)
 		mcpPath := cfg.Server.MCPPath
 		if mcpPath == "" {
 			mcpPath = "/mcp"
@@ -180,6 +190,7 @@ func main() {
 		mux := http.NewServeMux()
 		mux.Handle(mcpPath, httpHandler)
 		mux.Handle(mcpPath+"/", httpHandler)
+		mux.Handle("/metrics", metrics.Handler())
 		mux.Handle("/", srv)
 
 		log.Printf("MCP server enabled at %s%s", addr, mcpPath)
@@ -193,7 +204,16 @@ func main() {
 			log.Fatalf("Server error: %v", err)
 		}
 	} else {
-		if err := srv.ListenAndServe(addr); err != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.Handler())
+		mux.Handle("/", srv)
+
+		log.Printf("viking-go API listening on %s", addr)
+		httpSrv := &http.Server{
+			Addr:    addr,
+			Handler: mux,
+		}
+		if err := httpSrv.ListenAndServe(); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ximilala/viking-go/internal/agent"
 	ctx "github.com/ximilala/viking-go/internal/context"
+	"github.com/ximilala/viking-go/internal/metrics"
 	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/session"
@@ -54,7 +55,10 @@ func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.Hier
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	s.mux.ServeHTTP(w, r)
-	log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	elapsed := time.Since(start)
+	log.Printf("%s %s %s", r.Method, r.URL.Path, elapsed)
+	metrics.Inc("viking_http_requests_total")
+	metrics.Observe("viking_http_request_duration_ms", elapsed)
 }
 
 // ListenAndServe starts the HTTP server.

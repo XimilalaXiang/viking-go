@@ -11,6 +11,7 @@ import (
 
 	ctx "github.com/ximilala/viking-go/internal/context"
 	"github.com/ximilala/viking-go/internal/embedder"
+	"github.com/ximilala/viking-go/internal/metrics"
 	"github.com/ximilala/viking-go/internal/storage"
 )
 
@@ -88,6 +89,12 @@ func NewHierarchicalRetriever(store *storage.Store, emb embedder.Embedder, reran
 
 // Retrieve executes hierarchical retrieval.
 func (hr *HierarchicalRetriever) Retrieve(query TypedQuery, reqCtx *ctx.RequestContext, limit int) (*QueryResult, error) {
+	start := time.Now()
+	defer func() {
+		metrics.Inc("viking_retrieval_total")
+		metrics.Observe("viking_retrieval_duration_ms", time.Since(start))
+	}()
+
 	if limit <= 0 {
 		limit = 5
 	}
