@@ -2,7 +2,7 @@
 
 Lightweight Go reimplementation of [OpenViking](https://github.com/AgiMaulana/OpenViking) — a hierarchical context retrieval system with long-term memory, designed for AI agents.
 
-Single binary, ~13 MB, targeting 30–80 MB runtime memory.
+Single binary, ~14 MB, targeting 30–80 MB runtime memory.
 
 ## Architecture
 
@@ -19,10 +19,14 @@ viking-go
     ├── llm/                # LLM chat completion client
     ├── retriever/          # Hierarchical BFS retriever
     ├── indexer/            # Content → vector pipeline
-    ├── session/            # Session management & archiving
+    ├── session/            # Session management, archiving & compression
     ├── memory/             # Memory extraction & deduplication
     ├── intent/             # LLM-driven query planning
     ├── tree/               # In-memory context tree
+    ├── bootstrap/          # Directory structure initialization
+    ├── content/            # Content write coordinator
+    ├── prompts/            # Prompt template manager
+    ├── parse/              # Document import & parsing
     └── server/             # HTTP API server (16+ endpoints)
 ```
 
@@ -173,7 +177,7 @@ Relations are stored as `.relations.json` files linking URIs bidirectionally.
 go test ./... -v -count=1
 ```
 
-Currently 44 tests across 9 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, intent analysis, and tree structures.
+Currently 60 tests across 12 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, intent analysis, tree structures, directory initialization, prompts, and document parsing.
 
 ## Dependencies
 
