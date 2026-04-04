@@ -55,6 +55,7 @@ var extToLang = map[string]string{
 	".rs":    "rust",
 	".rb":    "ruby",
 	".php":   "php",
+	".go":    "go",
 	".c":     "c",
 	".cpp":   "cpp",
 	".cc":    "cpp",
@@ -87,6 +88,12 @@ func ExtractSkeleton(source, filename string) *CodeSkeleton {
 		extractor = &rubyExtractor{}
 	case "csharp":
 		extractor = &csharpExtractor{}
+	case "go":
+		extractor = &goExtractor{}
+	case "php":
+		extractor = &phpExtractor{}
+	case "c", "cpp":
+		extractor = &cppExtractor{lang: lang}
 	default:
 		return nil
 	}
@@ -397,6 +404,189 @@ func (e *csharpExtractor) Extract(source string) *CodeSkeleton {
 			Params:     simplifyParams(m[3]),
 		})
 	}
+	return sk
+}
+
+// --- Go extractor ---
+
+type goExtractor struct{}
+
+func (e *goExtractor) Language() string { return "go" }
+
+var (
+	goPackageRe   = regexp.MustCompile(`(?m)^package\s+(\w+)`)
+	goImportRe    = regexp.MustCompile(`(?m)^\s*"([^"]+)"`)
+	goFuncRe      = regexp.MustCompile(`(?m)^func\s+(\w+)\s*\(([^)]*)\)(?:\s*(\([^)]*\)|\S+))?`)
+	goMethodRe    = regexp.MustCompile(`(?m)^func\s+\((\w+)\s+\*?(\w+)\)\s+(\w+)\s*\(([^)]*)\)(?:\s*(\([^)]*\)|\S+))?`)
+	goStructRe    = regexp.MustCompile(`(?m)^type\s+(\w+)\s+struct\b`)
+	goInterfaceRe = regexp.MustCompile(`(?m)^type\s+(\w+)\s+interface\b`)
+	goConstRe     = regexp.MustCompile(`(?m)^const\s+(\w+)`)
+)
+
+func (e *goExtractor) Extract(source string) *CodeSkeleton {
+	sk := &CodeSkeleton{Language: "go", LineCount: countLines(source)}
+
+	if m := goPackageRe.FindStringSubmatch(source); m != nil {
+		sk.Package = "package " + m[1]
+	}
+
+	for _, m := range goImportRe.FindAllStringSubmatch(source, -1) {
+		sk.Imports = append(sk.Imports, m[1])
+	}
+
+	for _, m := range goStructRe.FindAllStringSubmatch(source, -1) {
+		sk.Classes = append(sk.Classes, ClassInfo{Name: m[1]})
+	}
+
+	for _, m := range goInterfaceRe.FindAllStringSubmatch(source, -1) {
+		sk.Interfaces = append(sk.Interfaces, m[1])
+	}
+
+	for _, m := range goConstRe.FindAllStringSubmatch(source, -1) {
+		sk.Constants = append(sk.Constants, m[1])
+	}
+
+	for _, m := range goMethodRe.FindAllStringSubmatch(source, -1) {
+		fi := FuncInfo{
+			Name:       m[3],
+			Receiver:   m[2],
+			Params:     simplifyParams(m[4]),
+			IsExported: m[3] != "" && m[3][0] >= 'A' && m[3][0] <= 'Z',
+		}
+		if m[5] != "" {
+			fi.ReturnType = strings.TrimSpace(m[5])
+		}
+		sk.Functions = append(sk.Functions, fi)
+	}
+
+	for _, m := range goFuncRe.FindAllStringSubmatch(source, -1) {
+		fi := FuncInfo{
+			Name:       m[1],
+			Params:     simplifyParams(m[2]),
+			IsExported: m[1] != "" && m[1][0] >= 'A' && m[1][0] <= 'Z',
+		}
+		if m[3] != "" {
+			fi.ReturnType = strings.TrimSpace(m[3])
+		}
+		sk.Functions = append(sk.Functions, fi)
+	}
+
+	return sk
+}
+
+// --- PHP extractor ---
+
+type phpExtractor struct{}
+
+func (e *phpExtractor) Language() string { return "php" }
+
+var (
+	phpClassRe     = regexp.MustCompile(`(?m)^\s*(?:abstract\s+|final\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([^{]+))?`)
+	phpFuncRe      = regexp.MustCompile(`(?m)^\s*(?:public|protected|private)?\s*(?:static\s+)?function\s+(\w+)\s*\(([^)]*)\)(?:\s*:\s*(\S+))?`)
+	phpNamespaceRe = regexp.MustCompile(`(?m)^namespace\s+([\w\\]+);`)
+	phpUseRe       = regexp.MustCompile(`(?m)^use\s+([\w\\]+)`)
+	phpInterfaceRe = regexp.MustCompile(`(?m)^\s*interface\s+(\w+)`)
+	phpTraitRe     = regexp.MustCompile(`(?m)^\s*trait\s+(\w+)`)
+)
+
+func (e *phpExtractor) Extract(source string) *CodeSkeleton {
+	sk := &CodeSkeleton{Language: "php", LineCount: countLines(source)}
+
+	if m := phpNamespaceRe.FindStringSubmatch(source); m != nil {
+		sk.Package = "namespace " + m[1]
+	}
+
+	for _, m := range phpUseRe.FindAllStringSubmatch(source, -1) {
+		sk.Imports = append(sk.Imports, m[1])
+	}
+
+	for _, m := range phpClassRe.FindAllStringSubmatch(source, -1) {
+		ci := ClassInfo{Name: m[1]}
+		if m[2] != "" {
+			ci.Extends = m[2]
+		}
+		if m[3] != "" {
+			for _, impl := range strings.Split(m[3], ",") {
+				ci.Implements = append(ci.Implements, strings.TrimSpace(impl))
+			}
+		}
+		sk.Classes = append(sk.Classes, ci)
+	}
+
+	for _, m := range phpInterfaceRe.FindAllStringSubmatch(source, -1) {
+		sk.Interfaces = append(sk.Interfaces, m[1])
+	}
+
+	for _, m := range phpTraitRe.FindAllStringSubmatch(source, -1) {
+		sk.Classes = append(sk.Classes, ClassInfo{Name: m[1] + " (trait)"})
+	}
+
+	for _, m := range phpFuncRe.FindAllStringSubmatch(source, -1) {
+		fi := FuncInfo{Name: m[1], Params: simplifyParams(m[2])}
+		if m[3] != "" {
+			fi.ReturnType = m[3]
+		}
+		sk.Functions = append(sk.Functions, fi)
+	}
+
+	return sk
+}
+
+// --- C/C++ extractor ---
+
+type cppExtractor struct {
+	lang string
+}
+
+func (e *cppExtractor) Language() string { return e.lang }
+
+var (
+	cppClassRe    = regexp.MustCompile(`(?m)^\s*(?:class|struct)\s+(\w+)(?:\s*:\s*(?:public|protected|private)\s+(\w+))?`)
+	cppFuncRe     = regexp.MustCompile(`(?m)^(?:(?:static|inline|virtual|extern|explicit)\s+)*(\w[\w:*&<> ]*?)\s+(\w+)\s*\(([^)]*)\)`)
+	cppIncludeRe  = regexp.MustCompile(`(?m)^#include\s+[<"]([^>"]+)[>"]`)
+	cppNamespaceRe = regexp.MustCompile(`(?m)^namespace\s+(\w+)`)
+	cppEnumRe     = regexp.MustCompile(`(?m)^\s*enum\s+(?:class\s+)?(\w+)`)
+	cppTemplateRe = regexp.MustCompile(`(?m)^template\s*<`)
+)
+
+func (e *cppExtractor) Extract(source string) *CodeSkeleton {
+	sk := &CodeSkeleton{Language: e.lang, LineCount: countLines(source)}
+
+	if m := cppNamespaceRe.FindStringSubmatch(source); m != nil {
+		sk.Package = "namespace " + m[1]
+	}
+
+	for _, m := range cppIncludeRe.FindAllStringSubmatch(source, -1) {
+		sk.Imports = append(sk.Imports, m[1])
+	}
+
+	for _, m := range cppClassRe.FindAllStringSubmatch(source, -1) {
+		ci := ClassInfo{Name: m[1]}
+		if m[2] != "" {
+			ci.Extends = m[2]
+		}
+		sk.Classes = append(sk.Classes, ci)
+	}
+
+	for _, m := range cppEnumRe.FindAllStringSubmatch(source, -1) {
+		sk.Constants = append(sk.Constants, m[1])
+	}
+
+	for _, m := range cppFuncRe.FindAllStringSubmatch(source, -1) {
+		name := m[2]
+		if name == "if" || name == "for" || name == "while" || name == "switch" || name == "return" || name == "class" || name == "struct" {
+			continue
+		}
+		fi := FuncInfo{
+			Name:       name,
+			ReturnType: strings.TrimSpace(m[1]),
+			Params:     simplifyParams(m[3]),
+		}
+		sk.Functions = append(sk.Functions, fi)
+	}
+
+	_ = cppTemplateRe
+
 	return sk
 }
 

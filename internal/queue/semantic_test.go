@@ -2,6 +2,7 @@ package queue
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,10 +33,11 @@ func TestSemanticDagFlatDirectory(t *testing.T) {
 
 	stats := dag.Stats()
 	if stats.TotalNodes != 1 {
-		t.Errorf("expected 1 node, got %d", stats.TotalNodes)
+		t.Errorf("expected 1 dir node, got %d", stats.TotalNodes)
 	}
-	if stats.DoneNodes != 1 {
-		t.Errorf("expected 1 done, got %d", stats.DoneNodes)
+	// DoneNodes counts: 2 files + 1 directory = 3
+	if stats.DoneNodes < 3 {
+		t.Errorf("expected at least 3 done (2 files + 1 dir), got %d", stats.DoneNodes)
 	}
 	if atomic.LoadInt32(&callCount) < 3 {
 		t.Errorf("expected at least 3 summarize calls (2 files + 1 dir), got %d", callCount)
@@ -68,10 +70,11 @@ func TestSemanticDagRecursive(t *testing.T) {
 
 	stats := dag.Stats()
 	if stats.TotalNodes != 2 {
-		t.Errorf("expected 2 nodes, got %d", stats.TotalNodes)
+		t.Errorf("expected 2 dir nodes, got %d", stats.TotalNodes)
 	}
-	if stats.DoneNodes != 2 {
-		t.Errorf("expected 2 done, got %d", stats.DoneNodes)
+	// DoneNodes: 1 file in root + 1 file in sub + 2 dirs = 4
+	if stats.DoneNodes < 4 {
+		t.Errorf("expected at least 4 done, got %d", stats.DoneNodes)
 	}
 }
 
@@ -166,5 +169,134 @@ func TestSemanticQueueFull(t *testing.T) {
 	err := q.Enqueue(SemanticMsg{URI: "viking://c"})
 	if err == nil {
 		t.Log("queue not full yet (timing dependent)")
+	}
+}
+
+func TestSemanticDagVectorizeTasks(t *testing.T) {
+	summarize := func(uri, ct string, rc *ctx.RequestContext) (string, string, error) {
+		return "abs:" + uri, "ovw:" + uri, nil
+	}
+	listChildren := func(uri string, rc *ctx.RequestContext) ([]string, []string, error) {
+		if uri == "viking://root" {
+			return []string{"viking://root/a.md", "viking://root/b.md"}, nil, nil
+		}
+		return nil, nil, nil
+	}
+
+	dag := NewSemanticDagExecutor("resource", nil, false, 5, summarize, listChildren)
+	err := dag.Execute("viking://root")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	tasks := dag.VectorizeTasks()
+	if len(tasks) < 3 {
+		t.Errorf("expected at least 3 vectorize tasks (2 files + 1 dir), got %d", len(tasks))
+	}
+
+	fileCount, dirCount := 0, 0
+	for _, task := range tasks {
+		switch task.TaskType {
+		case "file":
+			fileCount++
+		case "directory":
+			dirCount++
+		}
+	}
+	if fileCount != 2 {
+		t.Errorf("expected 2 file tasks, got %d", fileCount)
+	}
+	if dirCount != 1 {
+		t.Errorf("expected 1 dir task, got %d", dirCount)
+	}
+}
+
+func TestSemanticDagWriteContent(t *testing.T) {
+	written := make(map[string]string)
+	var mu sync.Mutex
+
+	writeContent := func(uri, abstract, overview string) error {
+		mu.Lock()
+		written[uri] = abstract + "|" + overview
+		mu.Unlock()
+		return nil
+	}
+	summarize := func(uri, ct string, rc *ctx.RequestContext) (string, string, error) {
+		return "a", "o", nil
+	}
+	listChildren := func(uri string, rc *ctx.RequestContext) ([]string, []string, error) {
+		if uri == "viking://root" {
+			return []string{"viking://root/f1"}, nil, nil
+		}
+		return nil, nil, nil
+	}
+
+	dag := NewSemanticDagExecutorWithConfig(DagExecutorConfig{
+		ContextType:   "resource",
+		Recursive:     false,
+		MaxConcurrent: 5,
+		Summarize:     summarize,
+		WriteContent:  writeContent,
+		ListChildren:  listChildren,
+	})
+	err := dag.Execute("viking://root")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if _, ok := written["viking://root"]; !ok {
+		t.Error("expected writeContent to be called for root directory")
+	}
+}
+
+func TestSemanticDagSkipFilenames(t *testing.T) {
+	callCount := int32(0)
+
+	summarize := func(uri, ct string, rc *ctx.RequestContext) (string, string, error) {
+		atomic.AddInt32(&callCount, 1)
+		return "a", "o", nil
+	}
+	listChildren := func(uri string, rc *ctx.RequestContext) ([]string, []string, error) {
+		if uri == "viking://root" {
+			return []string{
+				"viking://root/readme.md",
+				"viking://root/messages.jsonl",
+				"viking://root/.hidden",
+			}, nil, nil
+		}
+		return nil, nil, nil
+	}
+
+	dag := NewSemanticDagExecutor("resource", nil, false, 5, summarize, listChildren)
+	err := dag.Execute("viking://root")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Only readme.md should be processed (messages.jsonl and .hidden are skipped)
+	// Plus 1 dir summary = 2 total calls
+	count := atomic.LoadInt32(&callCount)
+	if count != 2 {
+		t.Errorf("expected 2 summarize calls (1 file + 1 dir), got %d", count)
+	}
+}
+
+func TestUriName(t *testing.T) {
+	tests := []struct {
+		uri  string
+		want string
+	}{
+		{"viking://root/file.md", "file.md"},
+		{"viking://root/sub/deep/file.txt", "file.txt"},
+		{"file.md", "file.md"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := uriName(tt.uri)
+		if got != tt.want {
+			t.Errorf("uriName(%q) = %q, want %q", tt.uri, got, tt.want)
+		}
 	}
 }

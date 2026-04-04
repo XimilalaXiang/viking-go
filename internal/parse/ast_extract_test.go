@@ -200,3 +200,268 @@ namespace MyApp.Services
 		t.Errorf("classes = %d", len(sk.Classes))
 	}
 }
+
+func TestGoExtractor(t *testing.T) {
+	src := `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+const Version = "1.0"
+
+type Server struct {
+	addr string
+}
+
+type Handler interface {
+	Handle()
+}
+
+func NewServer(addr string) *Server {
+	return &Server{addr: addr}
+}
+
+func (s *Server) Start() error {
+	fmt.Println("starting", s.addr)
+	return nil
+}
+
+func (s *Server) Stop() {
+	os.Exit(0)
+}
+`
+	sk := ExtractSkeleton(src, "main.go")
+	if sk == nil {
+		t.Fatal("nil skeleton")
+	}
+	if sk.Language != "go" {
+		t.Errorf("language = %s", sk.Language)
+	}
+	if sk.Package != "package main" {
+		t.Errorf("package = %s", sk.Package)
+	}
+	if len(sk.Imports) < 2 {
+		t.Errorf("imports = %d, want >= 2", len(sk.Imports))
+	}
+	if len(sk.Classes) != 1 {
+		t.Errorf("structs = %d, want 1", len(sk.Classes))
+	}
+	if sk.Classes[0].Name != "Server" {
+		t.Errorf("struct name = %s", sk.Classes[0].Name)
+	}
+	if len(sk.Interfaces) != 1 || sk.Interfaces[0] != "Handler" {
+		t.Errorf("interfaces = %v", sk.Interfaces)
+	}
+	if len(sk.Constants) < 1 {
+		t.Error("expected at least 1 constant")
+	}
+
+	hasMethod := false
+	hasFunc := false
+	for _, f := range sk.Functions {
+		if f.Name == "Start" && f.Receiver == "Server" {
+			hasMethod = true
+		}
+		if f.Name == "NewServer" && f.Receiver == "" {
+			hasFunc = true
+		}
+	}
+	if !hasMethod {
+		t.Error("missing Start method on Server")
+	}
+	if !hasFunc {
+		t.Error("missing NewServer function")
+	}
+
+	abs := SkeletonToAbstract(sk, "main.go")
+	if !strings.Contains(abs, "Server") {
+		t.Error("abstract should mention Server")
+	}
+}
+
+func TestPhpExtractor(t *testing.T) {
+	src := `<?php
+
+namespace App\Controllers;
+
+use App\Models\User;
+use App\Services\AuthService;
+
+interface Authenticatable {
+    public function authenticate(): bool;
+}
+
+trait HasTimestamps {
+    public function getCreatedAt(): string {
+        return $this->created_at;
+    }
+}
+
+class UserController extends BaseController implements Authenticatable
+{
+    public function index(): Response
+    {
+        return $this->json(User::all());
+    }
+
+    public static function create(Request $request): Response
+    {
+        return new Response();
+    }
+
+    private function validate(array $data): bool
+    {
+        return true;
+    }
+}
+`
+	sk := ExtractSkeleton(src, "UserController.php")
+	if sk == nil {
+		t.Fatal("nil skeleton")
+	}
+	if sk.Language != "php" {
+		t.Errorf("language = %s", sk.Language)
+	}
+	if !strings.Contains(sk.Package, "App\\Controllers") {
+		t.Errorf("namespace = %s", sk.Package)
+	}
+	if len(sk.Imports) < 2 {
+		t.Errorf("imports = %d, want >= 2", len(sk.Imports))
+	}
+	if len(sk.Interfaces) < 1 {
+		t.Error("expected at least 1 interface")
+	}
+
+	hasClass := false
+	for _, c := range sk.Classes {
+		if c.Name == "UserController" {
+			hasClass = true
+			if c.Extends != "BaseController" {
+				t.Errorf("extends = %s", c.Extends)
+			}
+		}
+	}
+	if !hasClass {
+		t.Error("missing UserController class")
+	}
+
+	if len(sk.Functions) < 2 {
+		t.Errorf("functions = %d, want >= 2", len(sk.Functions))
+	}
+}
+
+func TestCppExtractor(t *testing.T) {
+	src := `#include <iostream>
+#include <vector>
+#include "myheader.h"
+
+namespace game {
+
+class Player : public Entity {
+public:
+    void move(float dx, float dy);
+    int getHealth() const;
+};
+
+enum class Direction {
+    Up, Down, Left, Right
+};
+
+int main(int argc, char** argv) {
+    Player p;
+    p.move(1.0, 2.0);
+    return 0;
+}
+
+void Player::move(float dx, float dy) {
+    x += dx;
+    y += dy;
+}
+
+}
+`
+	sk := ExtractSkeleton(src, "game.cpp")
+	if sk == nil {
+		t.Fatal("nil skeleton")
+	}
+	if sk.Language != "cpp" {
+		t.Errorf("language = %s", sk.Language)
+	}
+	if !strings.Contains(sk.Package, "game") {
+		t.Errorf("namespace = %s", sk.Package)
+	}
+	if len(sk.Imports) < 3 {
+		t.Errorf("includes = %d, want >= 3", len(sk.Imports))
+	}
+
+	hasPlayer := false
+	for _, c := range sk.Classes {
+		if c.Name == "Player" {
+			hasPlayer = true
+			if c.Extends != "Entity" {
+				t.Errorf("extends = %s", c.Extends)
+			}
+		}
+	}
+	if !hasPlayer {
+		t.Error("missing Player class")
+	}
+
+	if len(sk.Constants) < 1 {
+		t.Error("expected Direction enum in constants")
+	}
+
+	hasMain := false
+	for _, f := range sk.Functions {
+		if f.Name == "main" {
+			hasMain = true
+		}
+	}
+	if !hasMain {
+		t.Error("missing main function")
+	}
+}
+
+func TestCExtractor(t *testing.T) {
+	src := `#include <stdio.h>
+#include <stdlib.h>
+
+struct Point {
+    int x;
+    int y;
+};
+
+int add(int a, int b) {
+    return a + b;
+}
+
+void print_point(struct Point p) {
+    printf("(%d, %d)\n", p.x, p.y);
+}
+`
+	sk := ExtractSkeleton(src, "utils.c")
+	if sk == nil {
+		t.Fatal("nil skeleton")
+	}
+	if sk.Language != "c" {
+		t.Errorf("language = %s", sk.Language)
+	}
+	if len(sk.Imports) < 2 {
+		t.Errorf("includes = %d", len(sk.Imports))
+	}
+	if len(sk.Classes) < 1 {
+		t.Error("expected Point struct")
+	}
+
+	hasAdd := false
+	for _, f := range sk.Functions {
+		if f.Name == "add" {
+			hasAdd = true
+		}
+	}
+	if !hasAdd {
+		t.Error("missing add function")
+	}
+}

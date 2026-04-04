@@ -3,6 +3,7 @@ package queue
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,8 +25,10 @@ type DirNode struct {
 	URI              string
 	ChildrenDirs     []string
 	FilePaths        []string
-	FileSummaries    map[string]*FileSummary
-	ChildAbstracts   map[string]string
+	FileIndex        map[string]int
+	ChildIndex       map[string]int
+	FileSummaries    []*FileSummary
+	ChildAbstracts   []*ChildAbstract
 	Pending          int32
 	Dispatched       bool
 	OverviewDone     bool
@@ -34,8 +37,15 @@ type DirNode struct {
 
 // FileSummary holds the generated summary for a file.
 type FileSummary struct {
-	Abstract string
-	Overview string
+	Name     string `json:"name"`
+	Abstract string `json:"abstract"`
+	Overview string `json:"overview"`
+}
+
+// ChildAbstract holds the abstract for a child directory.
+type ChildAbstract struct {
+	Name     string `json:"name"`
+	Abstract string `json:"abstract"`
 }
 
 // DagStats tracks DAG execution progress.
@@ -46,9 +56,27 @@ type DagStats struct {
 	DoneNodes     int32 `json:"done_nodes"`
 }
 
+// VectorizeTask describes a pending vectorization task produced by the DAG.
+type VectorizeTask struct {
+	TaskType    string `json:"task_type"` // "file" or "directory"
+	URI         string `json:"uri"`
+	ContextType string `json:"context_type"`
+	Abstract    string `json:"abstract,omitempty"`
+	Overview    string `json:"overview,omitempty"`
+	ParentURI   string `json:"parent_uri,omitempty"`
+}
+
+// skipFilenames lists session-internal files that should never be summarized.
+var skipFilenames = map[string]bool{
+	"messages.jsonl": true,
+}
+
 // SummarizeFunc is the callback for generating file/directory summaries.
 // It receives a URI and context type, returns abstract + overview.
 type SummarizeFunc func(uri, contextType string, reqCtx *ctx.RequestContext) (abstract, overview string, err error)
+
+// WriteContentFunc writes abstract and overview to a URI's VikingFS directory.
+type WriteContentFunc func(uri, abstract, overview string) error
 
 // ListChildrenFunc returns the children (files and subdirectories) of a URI.
 type ListChildrenFunc func(uri string, reqCtx *ctx.RequestContext) (files []string, dirs []string, err error)
@@ -61,16 +89,30 @@ type SemanticDagExecutor struct {
 	recursive      bool
 	maxConcurrent  int
 	summarize      SummarizeFunc
+	writeContent   WriteContentFunc
 	listChildren   ListChildrenFunc
 
-	nodes   map[string]*DirNode
-	parent  map[string]string
-	rootURI string
-	stats   DagStats
-	sem     chan struct{}
-	done    chan struct{}
-	mu      sync.Mutex
-	err     error
+	nodes            map[string]*DirNode
+	parent           map[string]string
+	rootURI          string
+	stats            DagStats
+	sem              chan struct{}
+	done             chan struct{}
+	mu               sync.Mutex
+	err              error
+	vectorizeTasks   []VectorizeTask
+	vectorizeMu      sync.Mutex
+}
+
+// DagExecutorConfig configures a SemanticDagExecutor.
+type DagExecutorConfig struct {
+	ContextType   string
+	ReqCtx        *ctx.RequestContext
+	Recursive     bool
+	MaxConcurrent int
+	Summarize     SummarizeFunc
+	WriteContent  WriteContentFunc
+	ListChildren  ListChildrenFunc
 }
 
 // NewSemanticDagExecutor creates a new DAG executor.
@@ -82,19 +124,32 @@ func NewSemanticDagExecutor(
 	summarize SummarizeFunc,
 	listChildren ListChildrenFunc,
 ) *SemanticDagExecutor {
-	if maxConcurrent <= 0 {
-		maxConcurrent = 10
+	return NewSemanticDagExecutorWithConfig(DagExecutorConfig{
+		ContextType:   contextType,
+		ReqCtx:        reqCtx,
+		Recursive:     recursive,
+		MaxConcurrent: maxConcurrent,
+		Summarize:     summarize,
+		ListChildren:  listChildren,
+	})
+}
+
+// NewSemanticDagExecutorWithConfig creates a DAG executor from full config.
+func NewSemanticDagExecutorWithConfig(cfg DagExecutorConfig) *SemanticDagExecutor {
+	if cfg.MaxConcurrent <= 0 {
+		cfg.MaxConcurrent = 10
 	}
 	return &SemanticDagExecutor{
-		contextType:   contextType,
-		reqCtx:        reqCtx,
-		recursive:     recursive,
-		maxConcurrent: maxConcurrent,
-		summarize:     summarize,
-		listChildren:  listChildren,
+		contextType:   cfg.ContextType,
+		reqCtx:        cfg.ReqCtx,
+		recursive:     cfg.Recursive,
+		maxConcurrent: cfg.MaxConcurrent,
+		summarize:     cfg.Summarize,
+		writeContent:  cfg.WriteContent,
+		listChildren:  cfg.ListChildren,
 		nodes:         make(map[string]*DirNode),
 		parent:        make(map[string]string),
-		sem:           make(chan struct{}, maxConcurrent),
+		sem:           make(chan struct{}, cfg.MaxConcurrent),
 		done:          make(chan struct{}),
 	}
 }
@@ -128,21 +183,61 @@ func (d *SemanticDagExecutor) Stats() DagStats {
 	}
 }
 
+// VectorizeTasks returns all vectorization tasks collected during execution.
+func (d *SemanticDagExecutor) VectorizeTasks() []VectorizeTask {
+	d.vectorizeMu.Lock()
+	defer d.vectorizeMu.Unlock()
+	out := make([]VectorizeTask, len(d.vectorizeTasks))
+	copy(out, d.vectorizeTasks)
+	return out
+}
+
+func (d *SemanticDagExecutor) addVectorizeTask(t VectorizeTask) {
+	d.vectorizeMu.Lock()
+	d.vectorizeTasks = append(d.vectorizeTasks, t)
+	d.vectorizeMu.Unlock()
+}
+
+func uriName(uri string) string {
+	if idx := strings.LastIndex(uri, "/"); idx >= 0 && idx < len(uri)-1 {
+		return uri[idx+1:]
+	}
+	return uri
+}
+
 func (d *SemanticDagExecutor) buildDAG(uri, parentURI string) error {
 	files, dirs, err := d.listChildren(uri, d.reqCtx)
 	if err != nil {
 		return err
 	}
 
-	node := &DirNode{
-		URI:            uri,
-		FilePaths:      files,
-		FileSummaries:  make(map[string]*FileSummary),
-		ChildAbstracts: make(map[string]string),
+	var filteredFiles []string
+	for _, f := range files {
+		name := uriName(f)
+		if skipFilenames[name] || strings.HasPrefix(name, ".") {
+			continue
+		}
+		filteredFiles = append(filteredFiles, f)
 	}
+
+	node := &DirNode{
+		URI:       uri,
+		FilePaths: filteredFiles,
+		FileIndex: make(map[string]int, len(filteredFiles)),
+	}
+
+	for i, f := range filteredFiles {
+		node.FileIndex[f] = i
+	}
+	node.FileSummaries = make([]*FileSummary, len(filteredFiles))
 
 	if d.recursive {
 		node.ChildrenDirs = dirs
+		node.ChildIndex = make(map[string]int, len(dirs))
+		for i, dir := range dirs {
+			node.ChildIndex[dir] = i
+		}
+		node.ChildAbstracts = make([]*ChildAbstract, len(dirs))
 	}
 
 	node.Pending = int32(len(node.FilePaths) + len(node.ChildrenDirs))
@@ -182,6 +277,7 @@ func (d *SemanticDagExecutor) dispatchNode(node *DirNode) {
 
 	for _, filePath := range node.FilePaths {
 		fp := filePath
+		parentURI := node.URI
 		go func() {
 			d.sem <- struct{}{}
 			defer func() { <-d.sem }()
@@ -189,13 +285,31 @@ func (d *SemanticDagExecutor) dispatchNode(node *DirNode) {
 
 			abstract, overview, err := d.summarize(fp, d.contextType, d.reqCtx)
 			atomic.AddInt32(&d.stats.RunningNodes, -1)
+			atomic.AddInt32(&d.stats.DoneNodes, 1)
 
 			if err != nil {
 				log.Printf("[SemanticDAG] file summary error %s: %v", fp, err)
 			}
 
+			summary := &FileSummary{
+				Name:     uriName(fp),
+				Abstract: abstract,
+				Overview: overview,
+			}
+
+			d.addVectorizeTask(VectorizeTask{
+				TaskType:    "file",
+				URI:         fp,
+				ContextType: d.contextType,
+				Abstract:    abstract,
+				Overview:    overview,
+				ParentURI:   parentURI,
+			})
+
 			node.mu.Lock()
-			node.FileSummaries[fp] = &FileSummary{Abstract: abstract, Overview: overview}
+			if idx, ok := node.FileIndex[fp]; ok {
+				node.FileSummaries[idx] = summary
+			}
 			remaining := atomic.AddInt32(&node.Pending, -1)
 			node.mu.Unlock()
 
@@ -227,6 +341,20 @@ func (d *SemanticDagExecutor) onNodeComplete(node *DirNode) {
 		log.Printf("[SemanticDAG] dir summary error %s: %v", node.URI, err)
 	}
 
+	if d.writeContent != nil {
+		if werr := d.writeContent(node.URI, abstract, overview); werr != nil {
+			log.Printf("[SemanticDAG] write error %s: %v", node.URI, werr)
+		}
+	}
+
+	d.addVectorizeTask(VectorizeTask{
+		TaskType:    "directory",
+		URI:         node.URI,
+		ContextType: d.contextType,
+		Abstract:    abstract,
+		Overview:    overview,
+	})
+
 	atomic.AddInt32(&d.stats.DoneNodes, 1)
 	atomic.AddInt32(&d.stats.PendingNodes, -1)
 
@@ -238,8 +366,12 @@ func (d *SemanticDagExecutor) onNodeComplete(node *DirNode) {
 
 		if parentNode != nil {
 			parentNode.mu.Lock()
-			parentNode.ChildAbstracts[node.URI] = abstract
-			_ = overview
+			if idx, ok := parentNode.ChildIndex[node.URI]; ok {
+				parentNode.ChildAbstracts[idx] = &ChildAbstract{
+					Name:     uriName(node.URI),
+					Abstract: abstract,
+				}
+			}
 			remaining := atomic.AddInt32(&parentNode.Pending, -1)
 			parentNode.mu.Unlock()
 
@@ -266,23 +398,47 @@ type SemanticQueue struct {
 	reqCtx    *ctx.RequestContext
 
 	summarize    SummarizeFunc
+	writeContent WriteContentFunc
 	listChildren ListChildrenFunc
+
+	vecTasksMu      sync.Mutex
+	totalVecTasks   int64
+}
+
+// SemanticQueueConfig configures a SemanticQueue.
+type SemanticQueueConfig struct {
+	Workers      int
+	BufferSize   int
+	Summarize    SummarizeFunc
+	WriteContent WriteContentFunc
+	ListChildren ListChildrenFunc
 }
 
 // NewSemanticQueue creates a new semantic processing queue.
 func NewSemanticQueue(workers, bufferSize int, summarize SummarizeFunc, listChildren ListChildrenFunc) *SemanticQueue {
-	if workers <= 0 {
-		workers = 1
+	return NewSemanticQueueWithConfig(SemanticQueueConfig{
+		Workers:      workers,
+		BufferSize:   bufferSize,
+		Summarize:    summarize,
+		ListChildren: listChildren,
+	})
+}
+
+// NewSemanticQueueWithConfig creates a SemanticQueue from full config.
+func NewSemanticQueueWithConfig(cfg SemanticQueueConfig) *SemanticQueue {
+	if cfg.Workers <= 0 {
+		cfg.Workers = 1
 	}
-	if bufferSize <= 0 {
-		bufferSize = 100
+	if cfg.BufferSize <= 0 {
+		cfg.BufferSize = 100
 	}
 	return &SemanticQueue{
-		msgs:         make(chan SemanticMsg, bufferSize),
-		workers:      workers,
+		msgs:         make(chan SemanticMsg, cfg.BufferSize),
+		workers:      cfg.Workers,
 		stopCh:       make(chan struct{}),
-		summarize:    summarize,
-		listChildren: listChildren,
+		summarize:    cfg.Summarize,
+		writeContent: cfg.WriteContent,
+		listChildren: cfg.ListChildren,
 	}
 }
 
@@ -341,6 +497,11 @@ func (q *SemanticQueue) worker(id int) {
 	}
 }
 
+// TotalVectorizeTasks returns the total number of vectorization tasks produced.
+func (q *SemanticQueue) TotalVectorizeTasks() int64 {
+	return atomic.LoadInt64(&q.totalVecTasks)
+}
+
 func (q *SemanticQueue) processMsg(workerID int, msg SemanticMsg) {
 	atomic.AddInt32(&q.running, 1)
 	defer atomic.AddInt32(&q.running, -1)
@@ -348,14 +509,15 @@ func (q *SemanticQueue) processMsg(workerID int, msg SemanticMsg) {
 	start := time.Now()
 	reqCtx := &ctx.RequestContext{}
 
-	dag := NewSemanticDagExecutor(
-		msg.ContextType,
-		reqCtx,
-		msg.Recursive,
-		10,
-		q.summarize,
-		q.listChildren,
-	)
+	dag := NewSemanticDagExecutorWithConfig(DagExecutorConfig{
+		ContextType:   msg.ContextType,
+		ReqCtx:        reqCtx,
+		Recursive:     msg.Recursive,
+		MaxConcurrent: 10,
+		Summarize:     q.summarize,
+		WriteContent:  q.writeContent,
+		ListChildren:  q.listChildren,
+	})
 
 	if err := dag.Execute(msg.URI); err != nil {
 		atomic.AddInt64(&q.failed, 1)
@@ -365,7 +527,9 @@ func (q *SemanticQueue) processMsg(workerID int, msg SemanticMsg) {
 	}
 
 	stats := dag.Stats()
+	vecTasks := dag.VectorizeTasks()
+	atomic.AddInt64(&q.totalVecTasks, int64(len(vecTasks)))
 	atomic.AddInt64(&q.completed, 1)
-	log.Printf("[SemanticQueue] worker-%d msg %s OK (nodes=%d, %s)",
-		workerID, msg.URI, stats.DoneNodes, time.Since(start))
+	log.Printf("[SemanticQueue] worker-%d msg %s OK (nodes=%d, vecTasks=%d, %s)",
+		workerID, msg.URI, stats.DoneNodes, len(vecTasks), time.Since(start))
 }
