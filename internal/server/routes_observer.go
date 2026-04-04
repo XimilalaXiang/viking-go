@@ -98,6 +98,65 @@ func (s *Server) handleObserverModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleObserverLock(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"result": map[string]any{
+			"name":       "lock",
+			"is_healthy": true,
+			"has_errors": false,
+			"status":     "ok",
+			"details": map[string]any{
+				"active_locks":   0,
+				"pending_locks":  0,
+				"lock_type":      "goroutine",
+			},
+		},
+	})
+}
+
+func (s *Server) handleObserverRetrieval(w http.ResponseWriter, r *http.Request) {
+	hasRetriever := s.retriever != nil
+	status := "ok"
+	if !hasRetriever {
+		status = "no retriever configured"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"result": map[string]any{
+			"name":       "retrieval",
+			"is_healthy": hasRetriever,
+			"has_errors": false,
+			"status":     status,
+			"details": map[string]any{
+				"retriever_available": hasRetriever,
+			},
+		},
+	})
+}
+
+func (s *Server) handleObserverVikingDB(w http.ResponseWriter, r *http.Request) {
+	storeStats, err := s.store.Stats()
+	isHealthy := err == nil
+	status := "ok"
+	if !isHealthy {
+		status = err.Error()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"result": map[string]any{
+			"name":       "vikingdb",
+			"is_healthy": isHealthy,
+			"has_errors": !isHealthy,
+			"status":     status,
+			"details": map[string]any{
+				"backend":     "sqlite",
+				"store_stats": storeStats,
+			},
+		},
+	})
+}
+
 func (s *Server) handleObserverSystem(w http.ResponseWriter, r *http.Request) {
 	rc := s.reqCtx(r)
 

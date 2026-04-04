@@ -211,3 +211,67 @@ func isGitURL(u string) bool {
 	}
 	return strings.HasSuffix(u, ".git")
 }
+
+type addSkillRequest struct {
+	Path         string `json:"path"`
+	TempFileID   string `json:"temp_file_id,omitempty"`
+	Name         string `json:"name,omitempty"`
+	To           string `json:"to,omitempty"`
+	WatchInterval float64 `json:"watch_interval,omitempty"`
+}
+
+func (s *Server) handleAddSkill(w http.ResponseWriter, r *http.Request) {
+	var req addSkillRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	sourcePath := req.Path
+	if req.TempFileID != "" {
+		resolved, err := s.resolveTempFileID(req.TempFileID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		sourcePath = resolved
+	}
+
+	if sourcePath == "" {
+		writeError(w, http.StatusBadRequest, "path or temp_file_id required")
+		return
+	}
+
+	targetURI := req.To
+	if targetURI == "" {
+		name := req.Name
+		if name == "" {
+			name = filepath.Base(sourcePath)
+		}
+		targetURI = "viking://agent/skills/" + name
+	}
+
+	if err := s.vfs.Mkdir(targetURI, nil); err != nil {
+		log.Printf("mkdir %s: %v", targetURI, err)
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("cannot read skill file: %v", err))
+		return
+	}
+
+	fileURI := targetURI + "/SKILL.md"
+	if err := s.vfs.WriteString(fileURI, string(content), s.reqCtx(r)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"result": map[string]any{
+			"uri":  targetURI,
+			"file": fileURI,
+		},
+	})
+}

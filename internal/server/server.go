@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ximilala/viking-go/internal/agent"
@@ -85,16 +86,21 @@ func (s *Server) ListenAndServe(addr string) error {
 func (s *Server) registerRoutes() {
 	// System
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+	s.mux.HandleFunc("GET /ready", s.handleReady)
 	s.mux.HandleFunc("GET /api/v1/system/status", s.withAuth(s.handleStatus))
+	s.mux.HandleFunc("POST /api/v1/system/wait", s.withAuth(s.handleSystemWait))
 
 	// Search
 	s.mux.HandleFunc("POST /api/v1/search/find", s.withAuth(s.handleFind))
 	s.mux.HandleFunc("POST /api/v1/search/search", s.withAuth(s.handleSearch))
+	s.mux.HandleFunc("POST /api/v1/search/grep", s.withAuth(s.handleGrep))
+	s.mux.HandleFunc("POST /api/v1/search/glob", s.withAuth(s.handleGlob))
 
 	// Content
 	s.mux.HandleFunc("GET /api/v1/content/read", s.withAuth(s.handleRead))
 	s.mux.HandleFunc("GET /api/v1/content/abstract", s.withAuth(s.handleAbstract))
 	s.mux.HandleFunc("GET /api/v1/content/overview", s.withAuth(s.handleOverview))
+	s.mux.HandleFunc("GET /api/v1/content/download", s.withAuth(s.handleDownload))
 	s.mux.HandleFunc("POST /api/v1/content/write", s.withAuth(s.handleWrite))
 	s.mux.HandleFunc("POST /api/v1/content/reindex", s.withAuth(s.handleReindex))
 
@@ -114,6 +120,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/sessions/{id}/context", s.withAuth(s.handleGetSessionContext))
 	s.mux.HandleFunc("POST /api/v1/sessions/{id}/messages", s.withAuth(s.handleAddMessage))
 	s.mux.HandleFunc("POST /api/v1/sessions/{id}/commit", s.withAuth(s.handleCommitSession))
+	s.mux.HandleFunc("POST /api/v1/sessions/{id}/extract", s.withAuth(s.handleExtractSession))
+	s.mux.HandleFunc("POST /api/v1/sessions/{id}/used", s.withAuth(s.handleSessionUsed))
+	s.mux.HandleFunc("GET /api/v1/sessions/{id}/archives/{archive_id}", s.withAuth(s.handleGetArchive))
 	s.mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.withAuth(s.handleDeleteSession))
 
 	// Relations
@@ -138,10 +147,13 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/admin/accounts/{account_id}/users", s.withAuth(s.handleRegisterUser))
 	s.mux.HandleFunc("PUT /api/v1/admin/accounts/{account_id}/users/{user_id}/role", s.withAuth(s.handleSetUserRole))
 	s.mux.HandleFunc("DELETE /api/v1/admin/accounts/{account_id}/users/{user_id}", s.withAuth(s.handleDeleteUser))
+	s.mux.HandleFunc("DELETE /api/v1/admin/accounts/{account_id}", s.withAuth(s.handleDeleteAccount))
+	s.mux.HandleFunc("POST /api/v1/admin/accounts/{account_id}/users/{user_id}/key", s.withAuth(s.handleRegenerateKey))
 
 	// Resources
 	s.mux.HandleFunc("POST /api/v1/resources", s.withAuth(s.handleAddResource))
 	s.mux.HandleFunc("POST /api/v1/resources/temp_upload", s.withAuth(s.handleTempUpload))
+	s.mux.HandleFunc("POST /api/v1/resources/skills", s.withAuth(s.handleAddSkill))
 
 	// Pack (export/import)
 	s.mux.HandleFunc("POST /api/v1/pack/export", s.withAuth(s.handlePackExport))
@@ -156,6 +168,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/observer/queue", s.withAuth(s.handleObserverQueue))
 	s.mux.HandleFunc("GET /api/v1/observer/storage", s.withAuth(s.handleObserverStorage))
 	s.mux.HandleFunc("GET /api/v1/observer/models", s.withAuth(s.handleObserverModels))
+	s.mux.HandleFunc("GET /api/v1/observer/lock", s.withAuth(s.handleObserverLock))
+	s.mux.HandleFunc("GET /api/v1/observer/retrieval", s.withAuth(s.handleObserverRetrieval))
+	s.mux.HandleFunc("GET /api/v1/observer/vikingdb", s.withAuth(s.handleObserverVikingDB))
 	s.mux.HandleFunc("GET /api/v1/observer/system", s.withAuth(s.handleObserverSystem))
 
 	// Stats
@@ -288,7 +303,87 @@ func (s *Server) requireRole(r *http.Request, minRole ctx.Role) bool {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
+		"healthy": true,
 		"service": "viking-go",
+	})
+}
+
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	checks := map[string]string{}
+
+	if _, err := s.vfs.Ls("viking://", nil); err != nil {
+		checks["vikingfs"] = fmt.Sprintf("error: %v", err)
+	} else {
+		checks["vikingfs"] = "ok"
+	}
+
+	if s.store != nil {
+		if _, err := s.store.Stats(); err != nil {
+			checks["store"] = fmt.Sprintf("error: %v", err)
+		} else {
+			checks["store"] = "ok"
+		}
+	} else {
+		checks["store"] = "not_configured"
+	}
+
+	if s.apiKeyMgr != nil {
+		checks["api_key_manager"] = "ok"
+	} else {
+		checks["api_key_manager"] = "not_configured"
+	}
+
+	allOK := true
+	for _, v := range checks {
+		if v != "ok" && v != "not_configured" {
+			allOK = false
+			break
+		}
+	}
+
+	status := "ready"
+	code := http.StatusOK
+	if !allOK {
+		status = "not_ready"
+		code = http.StatusServiceUnavailable
+	}
+	writeJSON(w, code, map[string]any{"status": status, "checks": checks})
+}
+
+func (s *Server) handleSystemWait(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Timeout *float64 `json:"timeout,omitempty"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if s.embQueue != nil {
+		stats := s.embQueue.Stats()
+		if stats.Pending > 0 || stats.Running > 0 {
+			timeout := 60.0
+			if req.Timeout != nil {
+				timeout = *req.Timeout
+			}
+			deadline := time.After(time.Duration(timeout * float64(time.Second)))
+			for {
+				st := s.embQueue.Stats()
+				if st.Pending == 0 && st.Running == 0 {
+					break
+				}
+				select {
+				case <-deadline:
+					writeJSON(w, http.StatusOK, map[string]any{
+						"status": "ok",
+						"result": map[string]any{"completed": false, "reason": "timeout"},
+					})
+					return
+				case <-time.After(200 * time.Millisecond):
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"result": map[string]any{"completed": true},
 	})
 }
 
@@ -393,6 +488,59 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, fr)
 }
 
+type grepRequest struct {
+	URI             string `json:"uri"`
+	ExcludeURI      string `json:"exclude_uri,omitempty"`
+	Pattern         string `json:"pattern"`
+	CaseInsensitive bool   `json:"case_insensitive"`
+	NodeLimit       *int   `json:"node_limit,omitempty"`
+}
+
+func (s *Server) handleGrep(w http.ResponseWriter, r *http.Request) {
+	var req grepRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	limit := 1000
+	if req.NodeLimit != nil {
+		limit = *req.NodeLimit
+	}
+	matches, err := s.vfs.Grep(req.URI, req.Pattern, req.CaseInsensitive, limit, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": matches})
+}
+
+type globRequest struct {
+	Pattern   string `json:"pattern"`
+	URI       string `json:"uri"`
+	NodeLimit *int   `json:"node_limit,omitempty"`
+}
+
+func (s *Server) handleGlob(w http.ResponseWriter, r *http.Request) {
+	var req globRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.URI == "" {
+		req.URI = "viking://"
+	}
+	limit := 1000
+	if req.NodeLimit != nil {
+		limit = *req.NodeLimit
+	}
+	matches, err := s.vfs.Glob(req.Pattern, req.URI, limit, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": matches})
+}
+
 func categorizeFindResult(matched []retriever.MatchedContext) *retriever.FindResult {
 	fr := &retriever.FindResult{}
 	for _, m := range matched {
@@ -455,6 +603,29 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"uri": uri, "content": content})
+}
+
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	uri := r.URL.Query().Get("uri")
+	if uri == "" {
+		writeError(w, http.StatusBadRequest, "missing uri parameter")
+		return
+	}
+	content, err := s.vfs.ReadFile(uri, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	filename := "download.txt"
+	parts := strings.Split(strings.TrimRight(uri, "/"), "/")
+	if len(parts) > 0 {
+		filename = parts[len(parts)-1]
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Write([]byte(content))
 }
 
 type writeRequest struct {
@@ -770,6 +941,45 @@ func (s *Server) handleCommitSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, archive)
 }
 
+func (s *Server) handleExtractSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	result, err := s.sessionMgr.Extract(id, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": result})
+}
+
+func (s *Server) handleSessionUsed(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Contexts []string       `json:"contexts,omitempty"`
+		Skill    map[string]any `json:"skill,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	result, err := s.sessionMgr.RecordUsed(id, req.Contexts, req.Skill, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": result})
+}
+
+func (s *Server) handleGetArchive(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	archiveID := r.PathValue("archive_id")
+	result, err := s.sessionMgr.GetArchive(sessionID, archiveID, s.reqCtx(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": result})
+}
+
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.sessionMgr.Delete(id, s.reqCtx(r)); err != nil {
@@ -1035,6 +1245,42 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	accountID := r.PathValue("account_id")
+	if err := s.apiKeyMgr.DeleteAccount(accountID); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) handleRegenerateKey(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	accountID := r.PathValue("account_id")
+	userID := r.PathValue("user_id")
+	newKey, err := s.apiKeyMgr.RegenerateKey(accountID, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "result": map[string]any{"api_key": newKey}})
 }
 
 // --- Helpers ---

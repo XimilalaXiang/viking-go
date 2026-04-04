@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/ximilala/viking-go/internal/vlm"
 )
 
 // FileParser is the interface all document parsers must implement.
@@ -22,7 +24,24 @@ type Registry struct {
 }
 
 // NewRegistry creates a registry pre-loaded with all built-in parsers.
+// Image parsing falls back to metadata-only mode (no VLM).
 func NewRegistry() *Registry {
+	return NewRegistryWithVLM(nil)
+}
+
+// RegistryOptions configures optional parsers that require external services.
+type RegistryOptions struct {
+	VLMClient *vlm.Client
+	AudioCfg  *AudioConfig
+}
+
+// NewRegistryWithVLM creates a registry with optional VLM support for images.
+func NewRegistryWithVLM(vlmClient *vlm.Client) *Registry {
+	return NewRegistryWithOptions(RegistryOptions{VLMClient: vlmClient})
+}
+
+// NewRegistryWithOptions creates a registry with full optional configuration.
+func NewRegistryWithOptions(opts RegistryOptions) *Registry {
 	r := &Registry{
 		parsers: make(map[string]FileParser),
 		extMap:  make(map[string]string),
@@ -37,6 +56,11 @@ func NewRegistry() *Registry {
 	r.Register(&EPUBFileParser{})
 	r.Register(&ZipFileParser{})
 	r.Register(&PPTXFileParser{})
+	r.Register(&FeishuFileParser{})
+	r.Register(&LegacyDocFileParser{})
+	r.Register(NewImageFileParser(opts.VLMClient))
+	r.Register(NewAudioFileParser(opts.AudioCfg))
+	r.Register(NewVideoFileParser(opts.VLMClient, opts.AudioCfg))
 	return r
 }
 

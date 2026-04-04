@@ -278,6 +278,60 @@ func (m *APIKeyManager) DeleteUser(accountID, userID string) error {
 	return m.saveLocked()
 }
 
+// DeleteAccount removes an entire account and all its users.
+func (m *APIKeyManager) DeleteAccount(accountID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	acc, exists := m.accounts[accountID]
+	if !exists {
+		return fmt.Errorf("account %q not found", accountID)
+	}
+
+	for _, u := range acc.Users {
+		delete(m.keyIndex, u.KeyPrefix)
+	}
+	delete(m.accounts, accountID)
+
+	return m.saveLocked()
+}
+
+// RegenerateKey generates a new API key for an existing user.
+func (m *APIKeyManager) RegenerateKey(accountID, userID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	acc, exists := m.accounts[accountID]
+	if !exists {
+		return "", fmt.Errorf("account %q not found", accountID)
+	}
+	user, exists := acc.Users[userID]
+	if !exists {
+		return "", fmt.Errorf("user %q not found in account %q", userID, accountID)
+	}
+
+	delete(m.keyIndex, user.KeyPrefix)
+
+	key := generateAPIKey()
+	hash := hashKey(key)
+	prefix := keyPrefix(key)
+
+	user.KeyHash = hash
+	user.KeyPrefix = prefix
+
+	m.keyIndex[prefix] = &keyEntry{
+		AccountID: accountID,
+		UserID:    userID,
+		Role:      ctx.Role(user.Role),
+		KeyHash:   hash,
+	}
+
+	if err := m.saveLocked(); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
 func (m *APIKeyManager) keysPath() string {
 	return filepath.Join(m.dataDir, "_system", "apikeys.json")
 }

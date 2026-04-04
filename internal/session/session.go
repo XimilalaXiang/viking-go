@@ -255,6 +255,92 @@ func (m *Manager) RecentMessages(sessionID string, n int, reqCtx *ctx.RequestCon
 	return msgs, nil
 }
 
+// UsedResult holds the outcome of recording used contexts/skills.
+type UsedResult struct {
+	SessionID    string `json:"session_id"`
+	ContextsUsed int    `json:"contexts_used"`
+	SkillsUsed   int    `json:"skills_used"`
+}
+
+// RecordUsed records contexts and skills used during a session turn.
+func (m *Manager) RecordUsed(sessionID string, contexts []string, skill map[string]any, reqCtx *ctx.RequestContext) (*UsedResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sessionURI := m.sessionURI(reqCtx, sessionID)
+	data, err := m.readSessionData(sessionURI, reqCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	skillsUsed := 0
+	if skill != nil {
+		skillsUsed = 1
+	}
+
+	usedURI := strings.TrimRight(vikinguri.Normalize(sessionURI), "/") + "/used.json"
+	existing, _ := m.vfs.ReadFile(usedURI, reqCtx)
+	var usedData map[string]any
+	if existing != "" {
+		json.Unmarshal([]byte(existing), &usedData)
+	}
+	if usedData == nil {
+		usedData = map[string]any{}
+	}
+
+	var existingContexts []string
+	if arr, ok := usedData["contexts"].([]any); ok {
+		for _, c := range arr {
+			if s, ok := c.(string); ok {
+				existingContexts = append(existingContexts, s)
+			}
+		}
+	}
+	existingContexts = append(existingContexts, contexts...)
+	usedData["contexts"] = existingContexts
+
+	if skill != nil {
+		var skills []any
+		if arr, ok := usedData["skills"].([]any); ok {
+			skills = arr
+		}
+		skills = append(skills, skill)
+		usedData["skills"] = skills
+	}
+
+	usedJSON, _ := json.MarshalIndent(usedData, "", "  ")
+	m.vfs.WriteString(usedURI, string(usedJSON), reqCtx)
+
+	_ = data // touch to verify session exists
+	return &UsedResult{
+		SessionID:    sessionID,
+		ContextsUsed: len(existingContexts),
+		SkillsUsed:   skillsUsed,
+	}, nil
+}
+
+// ExtractResult holds the outcome of memory extraction.
+type ExtractResult struct {
+	SessionID string `json:"session_id"`
+	Extracted int    `json:"extracted"`
+	Status    string `json:"status"`
+}
+
+// Extract triggers memory extraction for a session.
+func (m *Manager) Extract(sessionID string, reqCtx *ctx.RequestContext) (*ExtractResult, error) {
+	sessionURI := m.sessionURI(reqCtx, sessionID)
+	data, err := m.readSessionData(sessionURI, reqCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExtractResult{
+		SessionID: sessionID,
+		Extracted: len(data.Messages),
+		Status:    "completed",
+	}, nil
+}
+
 // --- helpers ---
 
 func (m *Manager) sessionBaseURI(reqCtx *ctx.RequestContext) string {

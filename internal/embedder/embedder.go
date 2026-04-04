@@ -38,27 +38,62 @@ type Config struct {
 }
 
 // NewEmbedder creates an embedder from configuration.
-// Currently all providers use the OpenAI-compatible HTTP API.
+// Supports providers: "voyage", "jina", "cohere" (native APIs), default (OpenAI-compatible).
 func NewEmbedder(cfg Config) (Embedder, error) {
-	if cfg.APIBase == "" {
-		cfg.APIBase = "https://api.openai.com/v1"
-	}
-	if cfg.Model == "" {
-		cfg.Model = "text-embedding-3-small"
-	}
-	if cfg.Dimension <= 0 {
-		cfg.Dimension = 1536
-	}
-	if cfg.MaxRetries <= 0 {
-		cfg.MaxRetries = 3
-	}
+	switch cfg.Provider {
+	case "voyage":
+		model := cfg.Model
+		if model == "" {
+			model = "voyage-3"
+		}
+		dim := cfg.Dimension
+		if dim <= 0 {
+			dim = 1024
+		}
+		return NewVoyageEmbedder(cfg.APIKey, model, dim), nil
 
-	return &openAIEmbedder{
-		cfg: cfg,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-	}, nil
+	case "jina":
+		model := cfg.Model
+		if model == "" {
+			model = "jina-embeddings-v3"
+		}
+		dim := cfg.Dimension
+		if dim <= 0 {
+			dim = 1024
+		}
+		return NewJinaEmbedder(cfg.APIKey, model, dim), nil
+
+	case "cohere":
+		model := cfg.Model
+		if model == "" {
+			model = "embed-english-v3.0"
+		}
+		dim := cfg.Dimension
+		if dim <= 0 {
+			dim = 1024
+		}
+		return NewCohereEmbedder(cfg.APIKey, model, dim), nil
+
+	default:
+		if cfg.APIBase == "" {
+			cfg.APIBase = "https://api.openai.com/v1"
+		}
+		if cfg.Model == "" {
+			cfg.Model = "text-embedding-3-small"
+		}
+		if cfg.Dimension <= 0 {
+			cfg.Dimension = 1536
+		}
+		if cfg.MaxRetries <= 0 {
+			cfg.MaxRetries = 3
+		}
+		return &openAIEmbedder{
+			cfg: cfg,
+			client: &http.Client{
+				Timeout: 30 * time.Second,
+			},
+		}, nil
+	}
 }
 
 // openAIEmbedder implements Embedder using the OpenAI-compatible embeddings API.

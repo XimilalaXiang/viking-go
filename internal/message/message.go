@@ -71,10 +71,9 @@ func (m *Message) ToolParts() []ToolPart {
 
 // FindToolPart finds a ToolPart by tool_id.
 func (m *Message) FindToolPart(toolID string) *ToolPart {
-	for i, p := range m.Parts {
+	for _, p := range m.Parts {
 		if tp, ok := p.(ToolPart); ok && tp.ToolID == toolID {
 			return &[]ToolPart{tp}[0]
-			_ = i
 		}
 	}
 	return nil

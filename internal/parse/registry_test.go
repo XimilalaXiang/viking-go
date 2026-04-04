@@ -22,7 +22,7 @@ func TestRegistryCanParse(t *testing.T) {
 	}
 
 	no := []string{
-		"image.png", "video.mp4", "archive.tar.gz", "binary.bin", "photo.jpg",
+		"archive.tar.gz", "binary.bin",
 	}
 	for _, f := range no {
 		if r.CanParse(f) {
