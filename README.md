@@ -42,6 +42,8 @@ viking-go
     ├── parse/              # Document import & parsing
     │   ├── ast_extract.go  # Code AST extraction (9 languages)
     │   ├── tree_builder.go # Parsed tree → VikingFS finalization
+    │   ├── diff_sync.go    # Incremental top-down directory sync
+    │   ├── directory_scan.go # Pre-scan validation & classification
     │   ├── parse_zip.go    # ZIP archive parser
     │   ├── parse_pptx.go   # PowerPoint parser
     │   └── registry.go     # Parser registry (12 formats)
@@ -61,7 +63,8 @@ viking-go
     │   ├── queue.go        # Embedding worker pool
     │   ├── semantic.go     # Semantic DAG executor (bottom-up summarization)
     │   ├── named_queue.go  # Named queue with status tracking & hooks
-    │   └── queue_manager.go # Multi-queue manager with worker pools
+    │   ├── queue_manager.go # Multi-queue manager with worker pools
+    │   └── embedding_tracker.go # Cross-queue task coordination
     ├── observer/           # Component health monitoring framework
     ├── resilience/         # Circuit breaker & retry with exponential backoff
     ├── telemetry/          # Operation tracing & telemetry
@@ -86,11 +89,14 @@ viking-go
 - **Console UI**: Embedded SPA web dashboard with API proxy, CORS, and read/write permission control
 - **Multi-format Parsing**: 12+ formats — Markdown, HTML, PDF, Word, Excel, EPUB, PowerPoint, ZIP, code (regex AST for Python/JS/TS/Java/Rust/Ruby/C#/Go/PHP/C/C++)
 - **Tree Builder**: Parsed document tree finalization from temp VikingFS to permanent URI with unique name resolution and code hosting URL detection
+- **Diff Sync**: Incremental top-down recursive directory synchronization with add/delete/update detection
+- **Directory Scan**: Pre-scan validation with file classification (processable/unsupported), ignore dirs, include/exclude glob patterns
+- **Resource Import**: File upload (temp_upload), add_resource with filtering, watch integration
 - **Watch & Sync**: Monitor local directories, HTTP URLs, or Git repositories for changes; auto-sync and reindex
 - **MCP Server**: 11 tools via streamable-http
 - **Agent Bridge**: Lifecycle hooks for transparent memory injection/extraction
 - **Multi-backend Storage**: Pluggable backend interface (SQLite, HTTP remote, in-memory)
-- **Named Queue System**: Generic named queue abstraction with enqueue hooks, dequeue handlers, status tracking, and centralized QueueManager with concurrent worker pools
+- **Named Queue System**: Generic named queue abstraction with enqueue hooks, dequeue handlers, status tracking, centralized QueueManager with concurrent worker pools, and cross-queue EmbeddingTaskTracker coordination
 - **Semantic DAG Executor**: Bottom-up directory summarization with file filtering, vectorize task collection, and content persistence
 - **Observer System**: Health monitoring framework with concrete observers for queue, storage, models, locks, and retrieval subsystems
 - **Resilience**: Circuit breaker (CLOSED/OPEN/HALF_OPEN) with permanent/transient error classification, and retry with exponential backoff + jitter
@@ -239,6 +245,13 @@ Environment variable overrides: `OPENAI_API_KEY`, `VIKING_DATA_DIR`.
 | POST | `/api/v1/fs/rm` | Remove file/directory |
 | POST | `/api/v1/fs/mv` | Move/rename |
 
+### Resources
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/resources` | Add resource (path/URL/temp_file_id, with filtering) |
+| POST | `/api/v1/resources/temp_upload` | Upload temporary file for add_resource |
+
 ### Pack (Export/Import)
 
 | Method | Endpoint | Description |
@@ -348,7 +361,7 @@ Relations are stored as `.relations.json` files linking URIs bidirectionally.
 go test ./... -v -count=1
 ```
 
-150+ tests across 22 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, merge operations, intent analysis, tree structures, directory initialization, prompts, document parsing (including AST for 9 languages), console, watch, telemetry, multi-backend storage, named queues, queue manager, tree builder, observer, and resilience.
+170+ tests across 22 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, merge operations, intent analysis, tree structures, directory initialization, prompts, document parsing (including AST for 9 languages), console, watch, telemetry, multi-backend storage, named queues, queue manager, tree builder, observer, and resilience.
 
 ## Dependencies
 

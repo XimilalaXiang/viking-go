@@ -139,6 +139,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/v1/admin/accounts/{account_id}/users/{user_id}/role", s.withAuth(s.handleSetUserRole))
 	s.mux.HandleFunc("DELETE /api/v1/admin/accounts/{account_id}/users/{user_id}", s.withAuth(s.handleDeleteUser))
 
+	// Resources
+	s.mux.HandleFunc("POST /api/v1/resources", s.withAuth(s.handleAddResource))
+	s.mux.HandleFunc("POST /api/v1/resources/temp_upload", s.withAuth(s.handleTempUpload))
+
 	// Pack (export/import)
 	s.mux.HandleFunc("POST /api/v1/pack/export", s.withAuth(s.handlePackExport))
 	s.mux.HandleFunc("POST /api/v1/pack/import", s.withAuth(s.handlePackImport))
