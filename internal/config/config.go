@@ -48,6 +48,7 @@ type EmbeddingConfig struct {
 	APIKey    string `json:"api_key"`
 	APIBase   string `json:"api_base"`
 	Dimension int    `json:"dimension"`
+	MaxRPM    int    `json:"max_rpm"`
 }
 
 type RerankConfig struct {

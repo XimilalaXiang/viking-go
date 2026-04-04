@@ -224,7 +224,7 @@ func main() {
 			if targetURI == "" {
 				targetURI = "viking://resources/obsidian"
 			}
-			fnsSyncer := fns.NewSyncer(fnsClient, vfs, idx, vault, targetURI)
+			fnsSyncer := fns.NewSyncer(fnsClient, vfs, idx, vault, targetURI, cfg.Embedding.MaxRPM)
 			srv.SetFNSSyncer(fnsSyncer)
 			log.Printf("FNS integration enabled: vault=%s → %s", vault, targetURI)
 

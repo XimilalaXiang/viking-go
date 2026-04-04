@@ -46,13 +46,14 @@ type Syncer struct {
 
 	vault     string
 	targetURI string
+	maxRPM    int
 
 	state SyncState
 	mu    sync.Mutex
 }
 
 // NewSyncer creates an FNS syncer.
-func NewSyncer(client *Client, vfs *vikingfs.VikingFS, idx *indexer.Indexer, vault, targetURI string) *Syncer {
+func NewSyncer(client *Client, vfs *vikingfs.VikingFS, idx *indexer.Indexer, vault, targetURI string, maxRPM int) *Syncer {
 	user := &ctx.UserIdentifier{AccountID: "default", UserID: "default", AgentID: "default"}
 	s := &Syncer{
 		client:    client,
@@ -61,6 +62,7 @@ func NewSyncer(client *Client, vfs *vikingfs.VikingFS, idx *indexer.Indexer, vau
 		reqCtx:    ctx.NewRequestContext(user, ctx.RoleRoot),
 		vault:     vault,
 		targetURI: strings.TrimRight(targetURI, "/"),
+		maxRPM:    maxRPM,
 		state: SyncState{
 			NoteHashes: make(map[string]string),
 		},
@@ -183,11 +185,12 @@ func (s *Syncer) Sync(buildIndex bool) (*SyncResult, error) {
 	result.Duration = time.Since(start)
 
 	if buildIndex && s.indexer != nil && (result.Added > 0 || result.Updated > 0) {
-		idxResult, err := s.indexer.IndexDirectory(s.targetURI, s.reqCtx)
+		log.Printf("[FNS] starting recursive index with maxRPM=%d", s.maxRPM)
+		idxResult, err := s.indexer.IndexDirectoryRecursive(s.targetURI, s.reqCtx, s.maxRPM)
 		if err != nil {
 			log.Printf("[FNS] index error: %v", err)
 		} else {
-			log.Printf("[FNS] indexed: %d new, %d skipped", idxResult.Indexed, idxResult.Skipped)
+			log.Printf("[FNS] indexed: %d new, %d skipped, %d errors", idxResult.Indexed, idxResult.Skipped, idxResult.Errors)
 		}
 	}
 

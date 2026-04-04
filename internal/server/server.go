@@ -679,7 +679,9 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 // --- Indexer handlers ---
 
 type reindexRequest struct {
-	URI string `json:"uri"`
+	URI       string `json:"uri"`
+	Recursive bool   `json:"recursive"`
+	MaxRPM    int    `json:"max_rpm"`
 }
 
 func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
@@ -696,7 +698,14 @@ func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "indexer not available (no embedder configured)")
 		return
 	}
-	result, err := s.indexer.IndexDirectory(req.URI, s.reqCtx(r))
+
+	var result *indexer.IndexResult
+	var err error
+	if req.Recursive {
+		result, err = s.indexer.IndexDirectoryRecursive(req.URI, s.reqCtx(r), req.MaxRPM)
+	} else {
+		result, err = s.indexer.IndexDirectory(req.URI, s.reqCtx(r))
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

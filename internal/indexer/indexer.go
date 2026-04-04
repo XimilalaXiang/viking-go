@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	ctx "github.com/ximilala/viking-go/internal/context"
 	"github.com/ximilala/viking-go/internal/embedder"
@@ -129,6 +130,128 @@ func (idx *Indexer) IndexDirectory(uri string, reqCtx *ctx.RequestContext) (*Ind
 	}
 
 	return result, nil
+}
+
+// IndexDirectoryRecursive indexes a directory tree, recursing into subdirectories.
+// maxRPM controls the rate limit (requests per minute). Use 0 for no limit.
+func (idx *Indexer) IndexDirectoryRecursive(uri string, reqCtx *ctx.RequestContext, maxRPM int) (*IndexResult, error) {
+	if idx.embedder == nil {
+		return nil, fmt.Errorf("embedder not configured")
+	}
+
+	total := &IndexResult{}
+	var ticker *time.Ticker
+	if maxRPM > 0 {
+		interval := time.Minute / time.Duration(maxRPM)
+		ticker = time.NewTicker(interval)
+		defer ticker.Stop()
+	}
+
+	idx.indexRecursive(uri, reqCtx, total, ticker)
+	return total, nil
+}
+
+func (idx *Indexer) indexRecursive(uri string, reqCtx *ctx.RequestContext, total *IndexResult, ticker *time.Ticker) {
+	normalizedURI := strings.TrimRight(vikinguri.Normalize(uri), "/")
+	contextType := vikingfs.InferContextType(normalizedURI)
+	if contextType == "" {
+		contextType = "resource"
+	}
+
+	parsed, _ := vikinguri.Parse(normalizedURI)
+	parentURI := ""
+	if parsed != nil && parsed.Parent != nil {
+		parentURI = parsed.Parent.URI()
+	}
+
+	accountID := "default"
+	ownerSpace := ""
+	if reqCtx != nil {
+		accountID = reqCtx.AccountID
+		ownerSpace = deriveOwnerSpace(normalizedURI, reqCtx)
+	}
+
+	// L0: abstract
+	abstract, err := idx.vfs.Abstract(normalizedURI, reqCtx)
+	if err == nil && abstract != "" {
+		if ticker != nil {
+			<-ticker.C
+		}
+		if err := idx.vectorizeAndStore(normalizedURI, abstract, abstract, parentURI,
+			contextType, 0, false, accountID, ownerSpace); err != nil {
+			log.Printf("[Indexer] L0 error for %s: %v", normalizedURI, err)
+			total.Errors++
+		} else {
+			total.Indexed++
+		}
+	}
+
+	// L1: overview
+	overview, err := idx.vfs.Overview(normalizedURI, reqCtx)
+	if err == nil && overview != "" {
+		if ticker != nil {
+			<-ticker.C
+		}
+		if err := idx.vectorizeAndStore(normalizedURI, abstract, overview, parentURI,
+			contextType, 1, false, accountID, ownerSpace); err != nil {
+			log.Printf("[Indexer] L1 error for %s: %v", normalizedURI, err)
+			total.Errors++
+		} else {
+			total.Indexed++
+		}
+	}
+
+	entries, err := idx.vfs.Ls(normalizedURI, reqCtx)
+	if err != nil {
+		return
+	}
+
+	var subdirs []string
+	for _, entry := range entries {
+		if entry.IsDir {
+			subdirs = append(subdirs, entry.URI)
+			continue
+		}
+		if strings.HasPrefix(entry.Name, ".") {
+			continue
+		}
+
+		content, err := idx.vfs.ReadFile(entry.URI, reqCtx)
+		if err != nil {
+			total.Skipped++
+			continue
+		}
+
+		embedText := truncateText(content, maxEmbedInputChars)
+		if embedText == "" {
+			total.Skipped++
+			continue
+		}
+
+		fileSummary := content
+		if len(fileSummary) > 500 {
+			fileSummary = fileSummary[:500]
+		}
+
+		if ticker != nil {
+			<-ticker.C
+		}
+		if err := idx.vectorizeAndStore(entry.URI, fileSummary, embedText, normalizedURI,
+			contextType, 2, true, accountID, ownerSpace); err != nil {
+			log.Printf("[Indexer] L2 error for %s: %v", entry.URI, err)
+			total.Errors++
+		} else {
+			total.Indexed++
+		}
+
+		if total.Indexed%100 == 0 && total.Indexed > 0 {
+			log.Printf("[Indexer] progress: indexed=%d skipped=%d errors=%d", total.Indexed, total.Skipped, total.Errors)
+		}
+	}
+
+	for _, subURI := range subdirs {
+		idx.indexRecursive(subURI, reqCtx, total, ticker)
+	}
 }
 
 // IndexFile indexes a single file.
