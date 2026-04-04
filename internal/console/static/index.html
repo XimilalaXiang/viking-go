@@ -119,6 +119,7 @@ input:focus,textarea:focus{outline:none;border-color:var(--primary)}
 const API = '/console/api/v1';
 let currentView = 'dashboard';
 let currentPath = '';
+let currentUri = 'viking://';
 
 async function api(path, opts = {}) {
   const url = API + path;
@@ -233,14 +234,14 @@ async function renderDashboard(el) {
 }
 
 async function renderFiles(el) {
-  const data = await api('/ov/fs/ls?path=' + encodeURIComponent(currentPath));
+  const data = await api('/ov/fs/ls?uri=' + encodeURIComponent(currentUri));
   const entries = Array.isArray(data) ? data : (data?.result?.entries || data?.result || []);
 
   let html = '<h2 style="margin-bottom:16px">文件浏览</h2>';
-  html += renderBreadcrumb(currentPath);
+  html += renderBreadcrumb(currentUri);
   html += '<div class="panel"><ul class="file-list">';
 
-  if (currentPath) {
+  if (currentUri !== 'viking://') {
     html += `<li><span class="icon-dir" style="cursor:pointer" onclick="navigateUp()">.. (上级目录)</span></li>`;
   }
 
@@ -255,8 +256,8 @@ async function renderFiles(el) {
     const isDir = e.is_dir || e.isDir;
     const icon = isDir ? 'icon-dir' : 'icon-file';
     const symbol = isDir ? '📁' : '📄';
-    const onclick = isDir ? `onclick="navigateTo('${escapeJS(e.name)}')"` : `onclick="viewFile('${escapeJS(currentPath ? currentPath + '/' + e.name : e.name)}')"`;
-
+    const entryUri = e.uri || (currentUri.replace(/\/$/, '') + '/' + e.name);
+    const onclick = isDir ? `onclick="navigateToUri('${escapeJS(entryUri)}')"` : `onclick="viewFile('${escapeJS(entryUri)}')"`;
     const size = e.size ? formatBytes(e.size) : '';
     html += `<li><span class="${icon}" style="cursor:pointer" ${onclick}>${symbol} ${escHtml(e.name)}</span><span style="margin-left:auto;color:var(--muted);font-size:12px">${size}</span></li>`;
   }
@@ -358,46 +359,49 @@ async function renderTasks(el) {
   el.innerHTML = html;
 }
 
-async function viewFile(path) {
+async function viewFile(uri) {
   const el = document.getElementById('main-content');
   el.innerHTML = '<div class="loading">加载文件中...</div>';
+  const displayName = uri.replace(/^viking:\/\//, '');
   try {
-    const data = await api('/ov/content/read?uri=viking://resources/' + encodeURIComponent(path));
+    const data = await api('/ov/content/read?uri=' + encodeURIComponent(uri));
     const content = data?.result?.content || data?.content || JSON.stringify(data, null, 2);
-    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button class="btn" onclick="switchView('files')">返回</button><h2>${escHtml(path)}</h2></div><div class="content-view">${escHtml(content)}</div>`;
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button class="btn" onclick="switchView('files')">返回</button><h2>${escHtml(displayName)}</h2></div><div class="content-view">${escHtml(content)}</div>`;
   } catch (e) {
     el.innerHTML = `<div class="panel"><h2>错误</h2><p>${e.message}</p><button class="btn" onclick="switchView('files')">返回</button></div>`;
   }
 }
 
-function navigateTo(name) {
-  currentPath = currentPath ? currentPath + '/' + name : name;
+function navigateToUri(uri) {
+  currentUri = uri;
   renderFiles(document.getElementById('main-content'));
 }
 
 function navigateUp() {
-  const parts = currentPath.split('/');
+  const parts = currentUri.replace(/\/$/, '').split('/');
   parts.pop();
-  currentPath = parts.join('/');
+  currentUri = parts.join('/') || 'viking://';
+  if (currentUri === 'viking:') currentUri = 'viking://';
   renderFiles(document.getElementById('main-content'));
 }
 
-function navigateToBreadcrumb(idx) {
-  const parts = currentPath.split('/');
-  currentPath = parts.slice(0, idx + 1).join('/');
+function navigateToBreadcrumb(uri) {
+  currentUri = uri;
   renderFiles(document.getElementById('main-content'));
 }
 
-function renderBreadcrumb(path) {
-  let html = '<div class="breadcrumb"><span onclick="currentPath=\'\';renderFiles(document.getElementById(\'main-content\'))">根目录</span>';
-  if (path) {
-    const parts = path.split('/');
+function renderBreadcrumb(uri) {
+  let html = '<div class="breadcrumb"><span onclick="currentUri=\'viking://\';renderFiles(document.getElementById(\'main-content\'))">根目录</span>';
+  const stripped = uri.replace(/^viking:\/\//, '');
+  if (stripped) {
+    const parts = stripped.split('/');
     parts.forEach((p, i) => {
       html += ` / `;
+      const partUri = 'viking://' + parts.slice(0, i + 1).join('/');
       if (i === parts.length - 1) {
         html += `<span class="current">${escHtml(p)}</span>`;
       } else {
-        html += `<span onclick="navigateToBreadcrumb(${i})">${escHtml(p)}</span>`;
+        html += `<span onclick="navigateToBreadcrumb('${escapeJS(partUri)}')">${escHtml(p)}</span>`;
       }
     });
   }
