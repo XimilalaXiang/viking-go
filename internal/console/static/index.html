@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Viking Console</title>
+<title>Viking 控制台</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f1117;--surface:#181a24;--border:#2a2d3a;--text:#e1e4ed;--muted:#8b8fa3;--primary:#6366f1;--primary-hover:#818cf8;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444;--radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+:root{--bg:#0f1117;--surface:#181a24;--border:#2a2d3a;--text:#e1e4ed;--muted:#8b8fa3;--primary:#6366f1;--primary-hover:#818cf8;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444;--radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}
 body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
 a{color:var(--primary);text-decoration:none}
 a:hover{color:var(--primary-hover)}
@@ -75,42 +75,42 @@ input:focus,textarea:focus{outline:none;border-color:var(--primary)}
 <body>
 <div class="app" id="app">
   <div class="header">
-    <h1>Viking Console</h1>
+    <h1>Viking 控制台</h1>
     <span class="badge">Go</span>
     <div class="spacer"></div>
-    <div class="status"><span class="dot" id="health-dot"></span><span id="health-text">connecting...</span></div>
+    <div class="status"><span class="dot" id="health-dot"></span><span id="health-text">连接中...</span></div>
   </div>
   <div class="sidebar">
-    <div class="section"><div class="section-label">Overview</div></div>
+    <div class="section"><div class="section-label">概览</div></div>
     <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      Dashboard
+      仪表盘
     </div>
-    <div class="section" style="margin-top:12px"><div class="section-label">Data</div></div>
+    <div class="section" style="margin-top:12px"><div class="section-label">数据</div></div>
     <div class="nav-item" data-view="files" onclick="switchView('files')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-      File Browser
+      文件浏览
     </div>
     <div class="nav-item" data-view="search" onclick="switchView('search')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-      Search
+      搜索
     </div>
     <div class="nav-item" data-view="vectors" onclick="switchView('vectors')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      Vectors
+      向量库
     </div>
-    <div class="section" style="margin-top:12px"><div class="section-label">System</div></div>
+    <div class="section" style="margin-top:12px"><div class="section-label">系统</div></div>
     <div class="nav-item" data-view="observer" onclick="switchView('observer')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-      Observer
+      监控
     </div>
     <div class="nav-item" data-view="tasks" onclick="switchView('tasks')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-      Tasks
+      任务
     </div>
   </div>
   <div class="main" id="main-content">
-    <div class="loading">Loading...</div>
+    <div class="loading">加载中...</div>
   </div>
 </div>
 
@@ -139,19 +139,19 @@ async function checkHealth() {
     const dot = document.getElementById('health-dot');
     const txt = document.getElementById('health-text');
     if (d.status === 'ok') {
-      dot.className = 'dot'; txt.textContent = 'healthy';
+      dot.className = 'dot'; txt.textContent = '运行正常';
     } else {
-      dot.className = 'dot error'; txt.textContent = 'error';
+      dot.className = 'dot error'; txt.textContent = '异常';
     }
   } catch {
     document.getElementById('health-dot').className = 'dot error';
-    document.getElementById('health-text').textContent = 'offline';
+    document.getElementById('health-text').textContent = '离线';
   }
 }
 
 async function render() {
   const el = document.getElementById('main-content');
-  el.innerHTML = '<div class="loading">Loading...</div>';
+  el.innerHTML = '<div class="loading">加载中...</div>';
 
   try {
     switch (currentView) {
@@ -163,7 +163,7 @@ async function render() {
       case 'tasks': await renderTasks(el); break;
     }
   } catch (e) {
-    el.innerHTML = `<div class="panel"><h2>Error</h2><p>${e.message}</p></div>`;
+    el.innerHTML = `<div class="panel"><h2>错误</h2><p>${e.message}</p></div>`;
   }
 }
 
@@ -174,7 +174,7 @@ async function renderDashboard(el) {
     api('/ov/debug/vector/count').catch(() => null),
   ]);
 
-  let html = '<h2 style="margin-bottom:16px">Dashboard</h2>';
+  let html = '<h2 style="margin-bottom:16px">仪表盘</h2>';
 
   const sysR = sys?.result || {};
   const uptime = sysR.uptime_seconds || 0;
@@ -182,30 +182,31 @@ async function renderDashboard(el) {
   const vecR = vec?.result || {};
 
   html += '<div class="grid-3">';
-  html += `<div class="panel stat"><div class="value">${formatUptime(uptime)}</div><div class="label">Uptime</div></div>`;
-  html += `<div class="panel stat"><div class="value">${memR.total || 0}</div><div class="label">Memories</div></div>`;
-  html += `<div class="panel stat"><div class="value">${vecR.count || 0}</div><div class="label">Vectors</div></div>`;
+  html += `<div class="panel stat"><div class="value">${formatUptime(uptime)}</div><div class="label">运行时间</div></div>`;
+  html += `<div class="panel stat"><div class="value">${memR.total || 0}</div><div class="label">记忆条数</div></div>`;
+  html += `<div class="panel stat"><div class="value">${vecR.count || 0}</div><div class="label">向量数</div></div>`;
   html += '</div>';
 
   const comps = sysR.components || {};
-  html += '<div class="panel"><h3>Components</h3><div class="grid-3" style="margin-top:12px">';
+  html += '<div class="panel"><h3>组件状态</h3><div class="grid-3" style="margin-top:12px">';
   for (const [name, info] of Object.entries(comps)) {
     const dotClass = info.is_healthy ? 'ok' : 'err';
-    html += `<div class="health-card"><div class="health-dot ${dotClass}"></div><div class="info"><div class="name">${name}</div><div class="status">${info.status || (info.is_healthy ? 'healthy' : 'unhealthy')}</div></div></div>`;
+    const statusText = info.is_healthy ? '正常' : '异常';
+    html += `<div class="health-card"><div class="health-dot ${dotClass}"></div><div class="info"><div class="name">${name}</div><div class="status">${info.status || statusText}</div></div></div>`;
   }
   html += '</div></div>';
 
   const rt = sysR.runtime || {};
   if (rt.goroutines) {
-    html += '<div class="panel"><h3>Runtime</h3><div class="grid-3" style="margin-top:12px">';
-    html += `<div class="stat"><div class="value">${rt.goroutines}</div><div class="label">Goroutines</div></div>`;
-    html += `<div class="stat"><div class="value">${formatBytes(rt.heap_alloc || 0)}</div><div class="label">Heap</div></div>`;
-    html += `<div class="stat"><div class="value">${rt.gc_cycles || 0}</div><div class="label">GC Cycles</div></div>`;
+    html += '<div class="panel"><h3>运行时信息</h3><div class="grid-3" style="margin-top:12px">';
+    html += `<div class="stat"><div class="value">${rt.goroutines}</div><div class="label">协程数</div></div>`;
+    html += `<div class="stat"><div class="value">${formatBytes(rt.heap_alloc || 0)}</div><div class="label">堆内存</div></div>`;
+    html += `<div class="stat"><div class="value">${rt.gc_cycles || 0}</div><div class="label">GC 次数</div></div>`;
     html += '</div></div>';
   }
 
   if (memR.by_category) {
-    html += '<div class="panel"><h3>Memory Categories</h3><table style="margin-top:8px"><tr><th>Category</th><th>Count</th></tr>';
+    html += '<div class="panel"><h3>记忆分类</h3><table style="margin-top:8px"><tr><th>分类</th><th>数量</th></tr>';
     for (const [cat, cnt] of Object.entries(memR.by_category)) {
       html += `<tr><td>${cat}</td><td>${cnt}</td></tr>`;
     }
@@ -219,12 +220,12 @@ async function renderFiles(el) {
   const data = await api('/ov/fs/ls?path=' + encodeURIComponent(currentPath));
   const entries = data?.result?.entries || data?.result || [];
 
-  let html = '<h2 style="margin-bottom:16px">File Browser</h2>';
+  let html = '<h2 style="margin-bottom:16px">文件浏览</h2>';
   html += renderBreadcrumb(currentPath);
   html += '<div class="panel"><ul class="file-list">';
 
   if (currentPath) {
-    html += `<li><span class="icon-dir" style="cursor:pointer" onclick="navigateUp()">.. (parent)</span></li>`;
+    html += `<li><span class="icon-dir" style="cursor:pointer" onclick="navigateUp()">.. (上级目录)</span></li>`;
   }
 
   const sorted = [...entries].sort((a, b) => {
@@ -240,20 +241,20 @@ async function renderFiles(el) {
     html += `<li><span class="${icon}" style="cursor:pointer" ${onclick}>${symbol} ${escHtml(e.name)}</span><span style="margin-left:auto;color:var(--muted);font-size:12px">${size}</span></li>`;
   }
 
-  if (sorted.length === 0) html += '<li class="empty">Empty directory</li>';
+  if (sorted.length === 0) html += '<li class="empty">空目录</li>';
   html += '</ul></div>';
   el.innerHTML = html;
 }
 
 function renderSearch(el) {
   el.innerHTML = `
-    <h2 style="margin-bottom:16px">Search</h2>
+    <h2 style="margin-bottom:16px">搜索</h2>
     <div class="panel">
       <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Search query..." onkeydown="if(event.key==='Enter')doSearch()">
-        <button class="btn btn-primary" onclick="doSearch()">Search</button>
+        <input type="text" id="search-input" placeholder="输入搜索内容..." onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn btn-primary" onclick="doSearch()">搜索</button>
       </div>
-      <div id="search-results"><div class="empty">Enter a query to search memories and resources</div></div>
+      <div id="search-results"><div class="empty">输入关键词搜索记忆和资源</div></div>
     </div>`;
 }
 
@@ -261,22 +262,22 @@ async function doSearch() {
   const q = document.getElementById('search-input').value.trim();
   if (!q) return;
   const container = document.getElementById('search-results');
-  container.innerHTML = '<div class="loading">Searching...</div>';
+  container.innerHTML = '<div class="loading">搜索中...</div>';
   try {
     const data = await api('/ov/search/find', { method: 'POST', body: JSON.stringify({ query: q, limit: 20 }) });
     const results = data?.result?.results || data?.result || [];
     if (results.length === 0) {
-      container.innerHTML = '<div class="empty">No results found</div>';
+      container.innerHTML = '<div class="empty">未找到结果</div>';
       return;
     }
-    let html = '<table><tr><th>URI</th><th>Type</th><th>Score</th><th>Abstract</th></tr>';
+    let html = '<table><tr><th>URI</th><th>类型</th><th>评分</th><th>摘要</th></tr>';
     for (const r of results) {
       html += `<tr><td>${escHtml(r.uri || r.id || '')}</td><td>${escHtml(r.context_type || '')}</td><td>${(r.score || 0).toFixed(3)}</td><td>${escHtml((r.abstract || '').slice(0, 80))}</td></tr>`;
     }
     html += '</table>';
     container.innerHTML = html;
   } catch (e) {
-    container.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+    container.innerHTML = `<div class="empty">错误: ${e.message}</div>`;
   }
 }
 
@@ -284,12 +285,12 @@ async function renderVectors(el) {
   const data = await api('/ov/debug/vector/scroll?limit=50');
   const records = data?.result?.records || [];
 
-  let html = '<h2 style="margin-bottom:16px">Vectors</h2>';
-  html += '<div class="panel"><table><tr><th>ID</th><th>URI</th><th>Type</th><th>Category</th><th>Updated</th></tr>';
+  let html = '<h2 style="margin-bottom:16px">向量库</h2>';
+  html += '<div class="panel"><table><tr><th>ID</th><th>URI</th><th>类型</th><th>分类</th><th>更新时间</th></tr>';
   for (const r of records) {
     html += `<tr><td style="font-family:monospace;font-size:12px">${escHtml((r.id||'').slice(0,12))}</td><td>${escHtml(r.uri||'')}</td><td>${escHtml(r.context_type||'')}</td><td>${escHtml(r.category||'')}</td><td>${escHtml(r.updated_at||'')}</td></tr>`;
   }
-  if (records.length === 0) html += '<tr><td colspan="5" class="empty">No vectors</td></tr>';
+  if (records.length === 0) html += '<tr><td colspan="5" class="empty">暂无向量数据</td></tr>';
   html += '</table></div>';
   el.innerHTML = html;
 }
@@ -301,12 +302,13 @@ async function renderObserver(el) {
     api('/ov/observer/models').catch(() => ({})),
   ]);
 
-  let html = '<h2 style="margin-bottom:16px">Observer</h2><div class="grid-2">';
+  let html = '<h2 style="margin-bottom:16px">系统监控</h2><div class="grid-2">';
 
+  const labels = {'Queue': '队列', 'Storage': '存储', 'Models': '模型'};
   for (const [label, data] of [['Queue', queue], ['Storage', storage], ['Models', models]]) {
     const r = data?.result || {};
     const dotClass = r.is_healthy ? 'ok' : (r.has_errors ? 'err' : 'warn');
-    html += `<div class="panel"><div class="health-card" style="border:none;padding:0"><div class="health-dot ${dotClass}"></div><div class="info"><div class="name">${label}</div><div class="status">${r.status || 'unknown'}</div></div></div>`;
+    html += `<div class="panel"><div class="health-card" style="border:none;padding:0"><div class="health-dot ${dotClass}"></div><div class="info"><div class="name">${labels[label] || label}</div><div class="status">${r.status || '未知'}</div></div></div>`;
     if (r.details) {
       html += '<table style="margin-top:12px">';
       for (const [k, v] of Object.entries(r.details)) {
@@ -325,26 +327,26 @@ async function renderTasks(el) {
   const data = await api('/ov/tasks?limit=50');
   const tasks = data?.result || [];
 
-  let html = '<h2 style="margin-bottom:16px">Tasks</h2><div class="panel">';
-  html += '<table><tr><th>ID</th><th>Type</th><th>Status</th><th>Created</th></tr>';
+  let html = '<h2 style="margin-bottom:16px">任务列表</h2><div class="panel">';
+  html += '<table><tr><th>ID</th><th>类型</th><th>状态</th><th>创建时间</th></tr>';
   for (const t of tasks) {
     const statusColor = t.status === 'completed' ? 'var(--success)' : t.status === 'failed' ? 'var(--danger)' : t.status === 'running' ? 'var(--primary)' : 'var(--muted)';
     html += `<tr><td style="font-family:monospace;font-size:12px">${escHtml(t.id||'')}</td><td>${escHtml(t.type||'')}</td><td style="color:${statusColor}">${escHtml(t.status||'')}</td><td>${escHtml(t.created_at||'')}</td></tr>`;
   }
-  if (tasks.length === 0) html += '<tr><td colspan="4" class="empty">No tasks</td></tr>';
+  if (tasks.length === 0) html += '<tr><td colspan="4" class="empty">暂无任务</td></tr>';
   html += '</table></div>';
   el.innerHTML = html;
 }
 
 async function viewFile(path) {
   const el = document.getElementById('main-content');
-  el.innerHTML = '<div class="loading">Loading file...</div>';
+  el.innerHTML = '<div class="loading">加载文件中...</div>';
   try {
     const data = await api('/ov/content/read?uri=viking://resources/' + encodeURIComponent(path));
     const content = data?.result?.content || data?.content || JSON.stringify(data, null, 2);
-    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button class="btn" onclick="switchView('files')">Back</button><h2>${escHtml(path)}</h2></div><div class="content-view">${escHtml(content)}</div>`;
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button class="btn" onclick="switchView('files')">返回</button><h2>${escHtml(path)}</h2></div><div class="content-view">${escHtml(content)}</div>`;
   } catch (e) {
-    el.innerHTML = `<div class="panel"><h2>Error</h2><p>${e.message}</p><button class="btn" onclick="switchView('files')">Back</button></div>`;
+    el.innerHTML = `<div class="panel"><h2>错误</h2><p>${e.message}</p><button class="btn" onclick="switchView('files')">返回</button></div>`;
   }
 }
 
@@ -367,7 +369,7 @@ function navigateToBreadcrumb(idx) {
 }
 
 function renderBreadcrumb(path) {
-  let html = '<div class="breadcrumb"><span onclick="currentPath=\'\';renderFiles(document.getElementById(\'main-content\'))">root</span>';
+  let html = '<div class="breadcrumb"><span onclick="currentPath=\'\';renderFiles(document.getElementById(\'main-content\'))">根目录</span>';
   if (path) {
     const parts = path.split('/');
     parts.forEach((p, i) => {
@@ -384,10 +386,10 @@ function renderBreadcrumb(path) {
 }
 
 function formatUptime(sec) {
-  if (sec < 60) return sec + 's';
-  if (sec < 3600) return Math.floor(sec/60) + 'm';
-  if (sec < 86400) return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
-  return Math.floor(sec/86400) + 'd ' + Math.floor((sec%86400)/3600) + 'h';
+  if (sec < 60) return sec + '秒';
+  if (sec < 3600) return Math.floor(sec/60) + '分';
+  if (sec < 86400) return Math.floor(sec/3600) + '时 ' + Math.floor((sec%3600)/60) + '分';
+  return Math.floor(sec/86400) + '天 ' + Math.floor((sec%86400)/3600) + '时';
 }
 
 function formatBytes(bytes) {
