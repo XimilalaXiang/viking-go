@@ -21,6 +21,7 @@ type Config struct {
 	WriteEnabled      bool
 	RequestTimeoutSec float64
 	CORSOrigins       []string
+	APIKey            string
 }
 
 // DefaultConfig returns a sensible default configuration.
@@ -204,6 +205,9 @@ func forwardRequest(client *http.Client, cfg Config, w http.ResponseWriter, r *h
 				upReq.Header.Add(key, v)
 			}
 		}
+	}
+	if cfg.APIKey != "" && upReq.Header.Get("X-API-Key") == "" {
+		upReq.Header.Set("X-API-Key", cfg.APIKey)
 	}
 
 	resp, err := client.Do(upReq)
