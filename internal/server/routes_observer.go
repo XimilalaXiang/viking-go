@@ -3,8 +3,11 @@ package server
 import (
 	"net/http"
 	"runtime"
+	"syscall"
 	"time"
 )
+
+const diskSpaceLowThresholdBytes = 100 * 1024 * 1024 // 100 MB
 
 // ComponentStatus mirrors the Python ComponentStatus for observer responses.
 type ComponentStatus struct {
@@ -59,6 +62,21 @@ func (s *Server) handleObserverStorage(w http.ResponseWriter, r *http.Request) {
 
 	du, _ := s.vfs.DiskUsage(s.reqCtx(r))
 
+	details := map[string]any{
+		"store_stats":      stats,
+		"disk_usage_bytes": du,
+	}
+
+	availBytes, availErr := availableDiskSpace(s.vfs.RootDir())
+	if availErr == nil {
+		details["disk_available_bytes"] = availBytes
+		if availBytes < diskSpaceLowThresholdBytes {
+			isHealthy = false
+			status = "low disk space"
+			details["disk_space_warning"] = "available space below 100MB"
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 		"result": map[string]any{
@@ -66,12 +84,17 @@ func (s *Server) handleObserverStorage(w http.ResponseWriter, r *http.Request) {
 			"is_healthy": isHealthy,
 			"has_errors": !isHealthy,
 			"status":     status,
-			"details": map[string]any{
-				"store_stats":    stats,
-				"disk_usage_bytes": du,
-			},
+			"details":    details,
 		},
 	})
+}
+
+func availableDiskSpace(path string) (uint64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, err
+	}
+	return stat.Bavail * uint64(stat.Bsize), nil
 }
 
 func (s *Server) handleObserverModels(w http.ResponseWriter, r *http.Request) {
@@ -83,17 +106,34 @@ func (s *Server) handleObserverModels(w http.ResponseWriter, r *http.Request) {
 		status = "ok"
 	}
 
+	details := map[string]any{
+		"embedding_available": hasIndexer,
+		"retriever_available": hasRetriever,
+	}
+
+	embAvailable := true
+	if s.embedderHealth != nil {
+		details["embedder_health"] = s.embedderHealth.Health()
+		embAvailable = s.embedderHealth.IsAvailable()
+		if !embAvailable {
+			status = "degraded"
+		}
+	}
+	if s.llmHealth != nil {
+		details["llm_health"] = s.llmHealth.Health()
+		if !s.llmHealth.IsAvailable() {
+			status = "degraded"
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
 		"result": map[string]any{
 			"name":       "models",
-			"is_healthy": hasIndexer || hasRetriever,
-			"has_errors": false,
+			"is_healthy": (hasIndexer || hasRetriever) && embAvailable,
+			"has_errors": !embAvailable,
 			"status":     status,
-			"details": map[string]any{
-				"embedding_available": hasIndexer,
-				"retriever_available": hasRetriever,
-			},
+			"details":    details,
 		},
 	})
 }
@@ -176,7 +216,16 @@ func (s *Server) handleObserverSystem(w http.ResponseWriter, r *http.Request) {
 
 	modelsHealthy := s.indexer != nil || s.retriever != nil
 
-	allHealthy := queueHealthy && storageHealthy && modelsHealthy
+	embDegraded := false
+	llmDegraded := false
+	if s.embedderHealth != nil && !s.embedderHealth.IsAvailable() {
+		embDegraded = true
+	}
+	if s.llmHealth != nil && !s.llmHealth.IsAvailable() {
+		llmDegraded = true
+	}
+
+	allHealthy := queueHealthy && storageHealthy && modelsHealthy && !embDegraded
 
 	var errors []string
 	if !storageHealthy {
@@ -184,6 +233,12 @@ func (s *Server) handleObserverSystem(w http.ResponseWriter, r *http.Request) {
 	}
 	if !modelsHealthy {
 		errors = append(errors, "models: no embedding or retriever configured")
+	}
+	if embDegraded {
+		errors = append(errors, "embedder: circuit breaker open — semantic search degraded")
+	}
+	if llmDegraded {
+		errors = append(errors, "llm: circuit breaker open — memory extraction disabled")
 	}
 
 	var m runtime.MemStats
@@ -209,14 +264,23 @@ func (s *Server) handleObserverSystem(w http.ResponseWriter, r *http.Request) {
 						"disk_usage_bytes": du,
 					},
 				},
-				"models": map[string]any{
-					"name": "models", "is_healthy": modelsHealthy,
-					"has_errors": false,
-					"details": map[string]any{
-						"embedding_available": s.indexer != nil,
-						"retriever_available": s.retriever != nil,
-					},
-				},
+				"models": func() map[string]any {
+					m := map[string]any{
+						"name": "models", "is_healthy": modelsHealthy && !embDegraded,
+						"has_errors": embDegraded || llmDegraded,
+						"details": map[string]any{
+							"embedding_available": s.indexer != nil,
+							"retriever_available": s.retriever != nil,
+						},
+					}
+					if s.embedderHealth != nil {
+						m["details"].(map[string]any)["embedder_circuit"] = s.embedderHealth.Health()
+					}
+					if s.llmHealth != nil {
+						m["details"].(map[string]any)["llm_circuit"] = s.llmHealth.Health()
+					}
+					return m
+				}(),
 			},
 			"runtime": map[string]any{
 				"goroutines":  runtime.NumGoroutine(),

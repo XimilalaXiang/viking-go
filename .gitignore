@@ -1,5 +1,6 @@
 # Binaries
 /viking-go
+/fns-sync
 *.exe
 *.dll
 *.so
@@ -26,6 +27,7 @@ Thumbs.db
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
 data/
 
 # Config with secrets

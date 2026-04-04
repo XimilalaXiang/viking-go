@@ -1,17 +1,20 @@
 package main
 
 import (
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ximilala/viking-go/internal/agent"
 	"github.com/ximilala/viking-go/internal/config"
 	"github.com/ximilala/viking-go/internal/console"
 	"github.com/ximilala/viking-go/internal/embedder"
+	"github.com/ximilala/viking-go/internal/fns"
 	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/llm"
 	"github.com/ximilala/viking-go/internal/mcpserver"
@@ -26,10 +29,34 @@ import (
 	"github.com/ximilala/viking-go/internal/watch"
 
 	mcphttp "github.com/mark3labs/mcp-go/server"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 )
 
 var version = "0.1.0"
+
+func init() {
+	vecPath := os.Getenv("SQLITE_VEC_PATH")
+	if vecPath == "" {
+		exe, _ := os.Executable()
+		candidates := []string{
+			filepath.Join(filepath.Dir(exe), "vec0"),
+			"vec0",
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c + ".so"); err == nil {
+				vecPath = c
+				break
+			}
+		}
+	}
+	if vecPath != "" {
+		sql.Register("sqlite3_vec", &sqlite3.SQLiteDriver{
+			Extensions: []string{vecPath},
+		})
+		storage.SetDriverName("sqlite3_vec")
+		log.Printf("sqlite-vec extension registered from %s", vecPath)
+	}
+}
 
 func main() {
 	configPath := flag.String("config", "", "Path to viking-go config file (JSON)")
@@ -89,17 +116,18 @@ func main() {
 	// Initialize embedder (best-effort; search won't work without it)
 	var emb embedder.Embedder
 	if cfg.Embedding.APIKey != "" || cfg.Embedding.APIBase != "" {
-		emb, err = embedder.NewEmbedder(embedder.Config{
+		rawEmb, embErr := embedder.NewEmbedder(embedder.Config{
 			Provider:  cfg.Embedding.Provider,
 			Model:     cfg.Embedding.Model,
 			APIKey:    cfg.Embedding.APIKey,
 			APIBase:   cfg.Embedding.APIBase,
 			Dimension: cfg.Embedding.Dimension,
 		})
-		if err != nil {
-			log.Printf("Warning: embedder init failed: %v", err)
+		if embErr != nil {
+			log.Printf("Warning: embedder init failed: %v", embErr)
 		} else {
-			log.Printf("Embedder initialized: %s/%s (dim=%d)", cfg.Embedding.Provider, cfg.Embedding.Model, cfg.Embedding.Dimension)
+			emb = embedder.NewResilientEmbedder(rawEmb, 5, 2*time.Minute)
+			log.Printf("Embedder initialized: %s/%s (dim=%d) [circuit-breaker protected]", cfg.Embedding.Provider, cfg.Embedding.Model, cfg.Embedding.Dimension)
 		}
 	} else {
 		log.Println("No embedding API key configured — semantic search disabled")
@@ -174,6 +202,51 @@ func main() {
 
 	// Build HTTP mux: REST API + optional MCP endpoint
 	srv := server.NewServer(store, vfs, ret, idx, cfg.Server.AuthMode, cfg.Server.RootAPIKey, watchMgr, bridge, embQueue)
+
+	// Attach circuit breaker health reporters for observability
+	if resilientEmb, ok := emb.(*embedder.ResilientEmbedder); ok {
+		srv.SetHealthReporters(resilientEmb, nil)
+	}
+
+	// Initialize FNS (Fast Note Sync) integration
+	if cfg.FNS.Enabled && cfg.FNS.BaseURL != "" && cfg.FNS.Token != "" {
+		fnsClient := fns.NewClient(cfg.FNS.BaseURL, cfg.FNS.Token)
+		if err := fnsClient.Health(); err != nil {
+			log.Printf("Warning: FNS health check failed: %v", err)
+		} else {
+			vault := cfg.FNS.Vault
+			if vault == "" {
+				if vaults, err := fnsClient.ListVaults(); err == nil && len(vaults) > 0 {
+					vault = vaults[0].Name
+				}
+			}
+			targetURI := cfg.FNS.TargetURI
+			if targetURI == "" {
+				targetURI = "viking://resources/obsidian"
+			}
+			fnsSyncer := fns.NewSyncer(fnsClient, vfs, idx, vault, targetURI)
+			srv.SetFNSSyncer(fnsSyncer)
+			log.Printf("FNS integration enabled: vault=%s → %s", vault, targetURI)
+
+			if cfg.FNS.IntervalMinutes > 0 {
+				go func() {
+					interval := time.Duration(cfg.FNS.IntervalMinutes * float64(time.Minute))
+					ticker := time.NewTicker(interval)
+					defer ticker.Stop()
+					for range ticker.C {
+						if result, err := fnsSyncer.Sync(cfg.FNS.BuildIndex); err != nil {
+							log.Printf("[FNS] scheduled sync error: %v", err)
+						} else if result.Added > 0 || result.Updated > 0 || result.Deleted > 0 {
+							log.Printf("[FNS] scheduled sync: added=%d updated=%d deleted=%d",
+								result.Added, result.Updated, result.Deleted)
+						}
+					}
+				}()
+				log.Printf("FNS scheduled sync every %.0f minutes", cfg.FNS.IntervalMinutes)
+			}
+		}
+	}
+
 	addr := server.Addr(cfg.Server.Host, cfg.Server.Port)
 
 	if cfg.Server.MCPEnabled {

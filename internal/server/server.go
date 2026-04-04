@@ -11,6 +11,7 @@ import (
 
 	"github.com/ximilala/viking-go/internal/agent"
 	ctx "github.com/ximilala/viking-go/internal/context"
+	"github.com/ximilala/viking-go/internal/fns"
 	"github.com/ximilala/viking-go/internal/indexer"
 	"github.com/ximilala/viking-go/internal/metrics"
 	"github.com/ximilala/viking-go/internal/queue"
@@ -21,6 +22,12 @@ import (
 	"github.com/ximilala/viking-go/internal/watch"
 )
 
+// HealthReporter provides health status for observability.
+type HealthReporter interface {
+	Health() map[string]any
+	IsAvailable() bool
+}
+
 // Server is the HTTP API server for viking-go.
 type Server struct {
 	store       *storage.Store
@@ -29,6 +36,7 @@ type Server struct {
 	indexer     *indexer.Indexer
 	sessionMgr  *session.Manager
 	watchMgr    *watch.Manager
+	fnsSyncer   *fns.Syncer
 	agentBridge *agent.Bridge
 	apiKeyMgr   *APIKeyManager
 	taskTracker *TaskTracker
@@ -37,6 +45,9 @@ type Server struct {
 	authMode    string
 	rootKey     string
 	startTime   time.Time
+
+	embedderHealth HealthReporter
+	llmHealth      HealthReporter
 }
 
 // NewServer creates a new API server.
@@ -66,6 +77,17 @@ func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.Hier
 
 	s.registerRoutes()
 	return s
+}
+
+// SetHealthReporters attaches optional health reporters for observability.
+func (s *Server) SetHealthReporters(embedder, llm HealthReporter) {
+	s.embedderHealth = embedder
+	s.llmHealth = llm
+}
+
+// SetFNSSyncer attaches the Fast Note Sync syncer.
+func (s *Server) SetFNSSyncer(syncer *fns.Syncer) {
+	s.fnsSyncer = syncer
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +156,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/watch", s.withAuth(s.handleWatchCreate))
 	s.mux.HandleFunc("GET /api/v1/watch", s.withAuth(s.handleWatchList))
 	s.mux.HandleFunc("DELETE /api/v1/watch/{id}", s.withAuth(s.handleWatchCancel))
+
+	// FNS (Fast Note Sync)
+	s.mux.HandleFunc("POST /api/v1/fns/sync", s.withAuth(s.handleFNSSync))
+	s.mux.HandleFunc("GET /api/v1/fns/status", s.withAuth(s.handleFNSStatus))
 
 	// Agent bridge
 	s.mux.HandleFunc("POST /api/v1/agent/start", s.withAuth(s.handleAgentStart))
@@ -1044,6 +1070,35 @@ func (s *Server) handleWatchCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
+}
+
+// --- FNS handlers ---
+
+func (s *Server) handleFNSSync(w http.ResponseWriter, r *http.Request) {
+	if s.fnsSyncer == nil {
+		writeError(w, http.StatusServiceUnavailable, "FNS syncer not configured")
+		return
+	}
+
+	buildIndex := true
+	if r.URL.Query().Get("build_index") == "false" {
+		buildIndex = false
+	}
+
+	result, err := s.fnsSyncer.Sync(buildIndex)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleFNSStatus(w http.ResponseWriter, r *http.Request) {
+	if s.fnsSyncer == nil {
+		writeError(w, http.StatusServiceUnavailable, "FNS syncer not configured")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.fnsSyncer.Status())
 }
 
 // --- Agent bridge handlers ---

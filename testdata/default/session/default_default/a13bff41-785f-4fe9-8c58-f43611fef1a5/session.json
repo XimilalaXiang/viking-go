@@ -1,0 +1,29 @@
+{
+  "info": {
+    "id": "a13bff41-785f-4fe9-8c58-f43611fef1a5",
+    "account_id": "default",
+    "user_id": "default",
+    "agent_id": "default",
+    "created_at": "2026-04-04T08:10:41Z",
+    "updated_at": "2026-04-04T08:10:49Z",
+    "status": "active",
+    "title": "请介绍一下RAG系统的核心流程"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "请介绍一下RAG系统的核心流程",
+      "timestamp": "2026-04-04T08:10:49Z"
+    },
+    {
+      "role": "assistant",
+      "content": "RAG的核心流程：1.检索 2.增强 3.生成",
+      "timestamp": "2026-04-04T08:10:49Z"
+    },
+    {
+      "role": "user",
+      "content": "Reranker在其中扮演什么角色？",
+      "timestamp": "2026-04-04T08:10:49Z"
+    }
+  ]
+}

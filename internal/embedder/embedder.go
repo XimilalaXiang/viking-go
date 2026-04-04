@@ -38,9 +38,20 @@ type Config struct {
 }
 
 // NewEmbedder creates an embedder from configuration.
-// Supports providers: "voyage", "jina", "cohere" (native APIs), default (OpenAI-compatible).
+// Supports providers: "voyage", "jina", "cohere", "gemini" (native APIs), default (OpenAI-compatible).
 func NewEmbedder(cfg Config) (Embedder, error) {
 	switch cfg.Provider {
+	case "gemini", "google":
+		model := cfg.Model
+		if model == "" {
+			model = "text-embedding-004"
+		}
+		dim := cfg.Dimension
+		if dim <= 0 {
+			dim = 768
+		}
+		return NewGeminiEmbedder(cfg.APIKey, model, dim, cfg.APIBase), nil
+
 	case "voyage":
 		model := cfg.Model
 		if model == "" {

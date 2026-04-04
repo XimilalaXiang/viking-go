@@ -14,6 +14,18 @@ type Config struct {
 	Embedding EmbeddingConfig `json:"embedding"`
 	Rerank    RerankConfig    `json:"rerank"`
 	LLM       LLMConfig       `json:"llm"`
+	FNS       FNSConfig       `json:"fns"`
+}
+
+// FNSConfig configures the Fast Note Sync integration.
+type FNSConfig struct {
+	Enabled         bool    `json:"enabled"`
+	BaseURL         string  `json:"base_url"`
+	Token           string  `json:"token"`
+	Vault           string  `json:"vault"`
+	TargetURI       string  `json:"target_uri"`
+	IntervalMinutes float64 `json:"interval_minutes"`
+	BuildIndex      bool    `json:"build_index"`
 }
 
 type ServerConfig struct {

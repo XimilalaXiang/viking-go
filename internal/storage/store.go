@@ -20,10 +20,15 @@ type Store struct {
 	hasVecTbl bool
 }
 
+var driverName = "sqlite3"
+
+// SetDriverName overrides the default SQLite driver name (e.g. "sqlite3_vec").
+func SetDriverName(name string) { driverName = name }
+
 // NewStore opens or creates a SQLite database at the given path.
 // Use ":memory:" for an in-memory database.
 func NewStore(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL")
+	db, err := sql.Open(driverName, dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -107,12 +112,8 @@ func (s *Store) Upsert(c *ctx.Context) error {
 
 func (s *Store) upsertVector(id string, vector []float32) error {
 	blob := float32SliceToBytes(vector)
-	_, err := s.db.Exec(`
-		INSERT INTO context_vectors (id, embedding)
-		VALUES (?, ?)
-		ON CONFLICT(id) DO UPDATE SET embedding=excluded.embedding`,
-		id, blob,
-	)
+	s.db.Exec(`DELETE FROM context_vectors WHERE id = ?`, id)
+	_, err := s.db.Exec(`INSERT INTO context_vectors (id, embedding) VALUES (?, ?)`, id, blob)
 	return err
 }
 
