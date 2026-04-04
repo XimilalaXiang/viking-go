@@ -40,7 +40,8 @@ viking-go
     ├── prompts/            # Prompt template manager (YAML templates)
     ├── message/            # Message model & assembler
     ├── parse/              # Document import & parsing
-    │   ├── ast_extract.go  # Code AST extraction (6 languages)
+    │   ├── ast_extract.go  # Code AST extraction (9 languages)
+    │   ├── tree_builder.go # Parsed tree → VikingFS finalization
     │   ├── parse_zip.go    # ZIP archive parser
     │   ├── parse_pptx.go   # PowerPoint parser
     │   └── registry.go     # Parser registry (12 formats)
@@ -56,8 +57,19 @@ viking-go
     │   ├── watch.go        # Task manager & scheduler
     │   └── source.go       # URL download & Git clone support
     ├── agent/              # Agent lifecycle bridge (hooks)
-    ├── queue/              # Async embedding worker pool
+    ├── queue/              # Async processing queues
+    │   ├── queue.go        # Embedding worker pool
+    │   ├── semantic.go     # Semantic DAG executor (bottom-up summarization)
+    │   ├── named_queue.go  # Named queue with status tracking & hooks
+    │   └── queue_manager.go # Multi-queue manager with worker pools
+    ├── observer/           # Component health monitoring framework
+    ├── resilience/         # Circuit breaker & retry with exponential backoff
     ├── telemetry/          # Operation tracing & telemetry
+    │   ├── telemetry.go    # Core counters, gauges, snapshots
+    │   ├── request.go      # Telemetry request normalization
+    │   ├── context.go      # Context-bound goroutine-local telemetry
+    │   ├── execution.go    # Telemetry-wrapped execution helpers
+    │   └── runtime.go      # Global runtime meter (counters/gauges/histograms)
     └── metrics/            # Prometheus-format observability
 ```
 
@@ -72,12 +84,17 @@ viking-go
   - LLM-driven deduplication
 - **Transaction System**: Path-level locking (point/subtree) with deadlock prevention and redo log recovery
 - **Console UI**: Embedded SPA web dashboard with API proxy, CORS, and read/write permission control
-- **Multi-format Parsing**: 12+ formats — Markdown, HTML, PDF, Word, Excel, EPUB, PowerPoint, ZIP, code (Go AST + regex for Python/JS/TS/Java/Rust/Ruby/C#)
+- **Multi-format Parsing**: 12+ formats — Markdown, HTML, PDF, Word, Excel, EPUB, PowerPoint, ZIP, code (regex AST for Python/JS/TS/Java/Rust/Ruby/C#/Go/PHP/C/C++)
+- **Tree Builder**: Parsed document tree finalization from temp VikingFS to permanent URI with unique name resolution and code hosting URL detection
 - **Watch & Sync**: Monitor local directories, HTTP URLs, or Git repositories for changes; auto-sync and reindex
 - **MCP Server**: 11 tools via streamable-http
 - **Agent Bridge**: Lifecycle hooks for transparent memory injection/extraction
 - **Multi-backend Storage**: Pluggable backend interface (SQLite, HTTP remote, in-memory)
-- **Observability**: Prometheus metrics, operation telemetry, component health observer
+- **Named Queue System**: Generic named queue abstraction with enqueue hooks, dequeue handlers, status tracking, and centralized QueueManager with concurrent worker pools
+- **Semantic DAG Executor**: Bottom-up directory summarization with file filtering, vectorize task collection, and content persistence
+- **Observer System**: Health monitoring framework with concrete observers for queue, storage, models, locks, and retrieval subsystems
+- **Resilience**: Circuit breaker (CLOSED/OPEN/HALF_OPEN) with permanent/transient error classification, and retry with exponential backoff + jitter
+- **Observability**: Prometheus metrics, operation telemetry (request selection, context binding, execution helpers, global runtime meter), component health observer
 - **Multi-tenancy**: Account/user/agent space isolation and access control
 - **Client SDK**: HTTP client and local embedded client for Go applications
 
@@ -331,7 +348,7 @@ Relations are stored as `.relations.json` files linking URIs bidirectionally.
 go test ./... -v -count=1
 ```
 
-100+ tests across 19 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, merge operations, intent analysis, tree structures, directory initialization, prompts, document parsing, console, watch, telemetry, and multi-backend storage.
+150+ tests across 22 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, merge operations, intent analysis, tree structures, directory initialization, prompts, document parsing (including AST for 9 languages), console, watch, telemetry, multi-backend storage, named queues, queue manager, tree builder, observer, and resilience.
 
 ## Dependencies
 
