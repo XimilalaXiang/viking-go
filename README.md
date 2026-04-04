@@ -9,62 +9,93 @@ Single binary, ~14 MB, targeting 30–80 MB runtime memory.
 ```
 viking-go
 ├── cmd/viking-go/          # CLI entry point
-├── pkg/uri/                # viking:// URI parsing & normalization
+├── pkg/
+│   ├── uri/                # viking:// URI parsing & normalization
+│   └── client/             # HTTP & local client SDK
 └── internal/
     ├── config/             # JSON + env-var configuration
     ├── context/            # Context model (L0/L1/L2, types, identity)
     ├── storage/            # SQLite + sqlite-vec storage layer
+    │   ├── backend.go      # Multi-backend abstraction (SQLite/HTTP/memory)
+    │   ├── transaction.go  # Path-level LockManager & redo log
+    │   └── filter.go       # Filter expressions (Eq/And/In/PathScope)
     ├── vikingfs/           # Local filesystem (URI → path mapping)
     ├── embedder/           # Embedding & reranking (OpenAI-compatible)
-    ├── llm/                # LLM chat completion client
+    ├── llm/                # LLM chat completion + tool calling client
     ├── retriever/          # Hierarchical BFS retriever + hotness scoring
     ├── indexer/            # Content → vector pipeline
     ├── session/            # Session management, archiving & compression
-    ├── memory/             # Memory extraction & deduplication
+    │   ├── compressor.go   # V1 basic memory extraction
+    │   └── compressor_v2.go # V2 schema-driven extraction with ReAct loop
+    ├── memory/             # Memory extraction, schema & merge operations
+    │   ├── mergeop/        # Field merge strategies (patch/immutable/sum)
+    │   ├── schema.go       # YAML-driven memory type registry
+    │   ├── updater.go      # Structured memory writer with merge ops
+    │   ├── extractor.go    # LLM-based memory extraction
+    │   └── deduplicator.go # Embedding-based deduplication
     ├── intent/             # LLM-driven query planning
     ├── tree/               # In-memory context tree
     ├── bootstrap/          # Directory structure initialization
     ├── content/            # Content write coordinator
-    ├── prompts/            # Prompt template manager
+    ├── prompts/            # Prompt template manager (YAML templates)
+    ├── message/            # Message model & assembler
     ├── parse/              # Document import & parsing
-    ├── server/             # HTTP API server (26+ endpoints)
+    │   ├── ast_extract.go  # Code AST extraction (6 languages)
+    │   ├── parse_zip.go    # ZIP archive parser
+    │   ├── parse_pptx.go   # PowerPoint parser
+    │   └── registry.go     # Parser registry (12 formats)
+    ├── server/             # HTTP API server (40+ endpoints)
+    │   ├── routes_pack.go  # Pack export/import (.ovpack)
+    │   ├── routes_debug.go # Debug & vector inspection
+    │   ├── routes_observer.go # Component health observer
+    │   ├── routes_stats.go # Memory & session statistics
+    │   └── routes_tasks.go # Background task tracking
     ├── mcpserver/          # MCP protocol server (streamable-http)
-    ├── watch/              # Directory watch & incremental sync
+    ├── console/            # Web management UI + API proxy
+    ├── watch/              # Directory/URL/Git watch & sync
+    │   ├── watch.go        # Task manager & scheduler
+    │   └── source.go       # URL download & Git clone support
     ├── agent/              # Agent lifecycle bridge (hooks)
     ├── queue/              # Async embedding worker pool
+    ├── telemetry/          # Operation tracing & telemetry
     └── metrics/            # Prometheus-format observability
 ```
 
 ## Key Features
 
 - **Hierarchical Retrieval**: BFS-based search with score propagation across L0 (abstract), L1 (overview), L2 (detail) levels
-- **Vector Search**: SQLite + sqlite-vec for dense vector similarity
-- **Memory System**: 8-category memory extraction (profile, preferences, entities, events, cases, patterns, tools, skills) with LLM-driven deduplication
-- **Hotness Scoring**: Blends semantic relevance with access frequency and recency
-- **MCP Server**: 11 tools via streamable-http — query, search, add_resource, read, list_directory, tree, status, watch_create/list/cancel, queue_status
-- **Watch & Sync**: Monitor local directories for changes (SHA256 hash), auto-sync and reindex
-- **Agent Bridge**: Lifecycle hooks (BeforeAgentStart, AfterAgentEnd, BeforeCompaction) for transparent memory injection/extraction
-- **Embedding Queue**: Async worker pool for non-blocking bulk vectorization
-- **Observability**: Prometheus-format metrics at `/metrics` (request counts, latencies, embedding stats)
-- **Intent Analysis**: LLM-powered query plan generation from session context
-- **VikingFS**: URI-based filesystem abstraction with relation management
+- **Vector Search**: SQLite + sqlite-vec for dense vector similarity, with multi-backend abstraction
+- **Memory System**: 8-category structured memory extraction (profile, preferences, entities, events, cases, patterns, tools, skills)
+  - Schema-driven extraction via YAML definitions
+  - ReAct-style LLM orchestration (CompressorV2)
+  - Merge operations (patch, immutable, sum) for field-level updates
+  - LLM-driven deduplication
+- **Transaction System**: Path-level locking (point/subtree) with deadlock prevention and redo log recovery
+- **Console UI**: Embedded SPA web dashboard with API proxy, CORS, and read/write permission control
+- **Multi-format Parsing**: 12+ formats — Markdown, HTML, PDF, Word, Excel, EPUB, PowerPoint, ZIP, code (Go AST + regex for Python/JS/TS/Java/Rust/Ruby/C#)
+- **Watch & Sync**: Monitor local directories, HTTP URLs, or Git repositories for changes; auto-sync and reindex
+- **MCP Server**: 11 tools via streamable-http
+- **Agent Bridge**: Lifecycle hooks for transparent memory injection/extraction
+- **Multi-backend Storage**: Pluggable backend interface (SQLite, HTTP remote, in-memory)
+- **Observability**: Prometheus metrics, operation telemetry, component health observer
 - **Multi-tenancy**: Account/user/agent space isolation and access control
-- **Session Management**: Create, archive, and query conversation sessions
+- **Client SDK**: HTTP client and local embedded client for Go applications
 
 ## Quick Start
 
 ### Docker (Recommended)
 
 ```bash
-# Clone and build
 git clone https://github.com/XimilalaXiang/viking-go.git
 cd viking-go
 
-# Start with docker-compose
 OPENAI_API_KEY=sk-xxx docker-compose up -d
 
 # Check health
 curl http://localhost:6920/health
+
+# Open console UI
+open http://localhost:6920/console/
 ```
 
 ### Build from Source
@@ -148,7 +179,7 @@ Environment variable overrides: `OPENAI_API_KEY`, `VIKING_DATA_DIR`.
 | `list_directory` | Browse knowledge base structure |
 | `tree` | Directory tree with abstracts |
 | `status` | System statistics |
-| `watch_create` | Create directory watch task |
+| `watch_create` | Create watch task (local dir, URL, or Git repo) |
 | `watch_list` | List watch tasks |
 | `watch_cancel` | Cancel watch task |
 | `queue_status` | Embedding queue status |
@@ -191,6 +222,44 @@ Environment variable overrides: `OPENAI_API_KEY`, `VIKING_DATA_DIR`.
 | POST | `/api/v1/fs/rm` | Remove file/directory |
 | POST | `/api/v1/fs/mv` | Move/rename |
 
+### Pack (Export/Import)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/pack/export` | Export directory as .ovpack archive |
+| POST | `/api/v1/pack/import` | Import .ovpack archive |
+
+### Debug
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/debug/health` | Storage health check |
+| GET | `/api/v1/debug/vector/scroll` | Paginated vector record listing |
+| GET | `/api/v1/debug/vector/count` | Vector record count |
+
+### Observer
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/observer/queue` | Embedding queue health |
+| GET | `/api/v1/observer/storage` | Storage backend health |
+| GET | `/api/v1/observer/models` | Model availability |
+| GET | `/api/v1/observer/system` | Full system health + runtime stats |
+
+### Stats
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/stats/memories` | Memory counts by category |
+| GET | `/api/v1/stats/sessions/{id}` | Session extraction stats |
+
+### Tasks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/tasks` | List background tasks |
+| GET | `/api/v1/tasks/{id}` | Get task status |
+
 ### Relations
 
 | Method | Endpoint | Description |
@@ -211,11 +280,11 @@ Environment variable overrides: `OPENAI_API_KEY`, `VIKING_DATA_DIR`.
 | POST | `/api/v1/sessions/{id}/commit` | Archive & clear messages |
 | DELETE | `/api/v1/sessions/{id}` | Delete session |
 
-### Watch (Directory Sync)
+### Watch (Directory/URL/Git Sync)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/v1/watch` | Create watch task |
+| POST | `/api/v1/watch` | Create watch task (local, URL, or Git) |
 | GET | `/api/v1/watch` | List watch tasks |
 | DELETE | `/api/v1/watch/{id}` | Cancel watch task |
 
@@ -226,6 +295,13 @@ Environment variable overrides: `OPENAI_API_KEY`, `VIKING_DATA_DIR`.
 | POST | `/api/v1/agent/start` | Retrieve context for agent session |
 | POST | `/api/v1/agent/end` | Extract memories & archive session |
 | POST | `/api/v1/agent/compact` | Extract memories before compaction |
+
+### Console
+
+| Path | Description |
+|------|-------------|
+| `/console/` | Web management dashboard |
+| `/console/api/v1/*` | Console API proxy |
 
 ## URI Scheme
 
@@ -255,13 +331,14 @@ Relations are stored as `.relations.json` files linking URIs bidirectionally.
 go test ./... -v -count=1
 ```
 
-60+ tests across 11 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, intent analysis, tree structures, directory initialization, prompts, and document parsing.
+100+ tests across 19 packages covering URI parsing, storage, VikingFS, HTTP server, sessions, memory extraction, merge operations, intent analysis, tree structures, directory initialization, prompts, document parsing, console, watch, telemetry, and multi-backend storage.
 
 ## Dependencies
 
 - [github.com/mattn/go-sqlite3](https://github.com/mattn/go-sqlite3) — SQLite3 driver (CGO)
 - [github.com/google/uuid](https://github.com/google/uuid) — UUID generation
 - [github.com/mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) — MCP protocol (streamable-http)
+- [gopkg.in/yaml.v3](https://gopkg.in/yaml.v3) — YAML parsing for schemas and templates
 
 Optional at runtime:
 - [sqlite-vec](https://github.com/asg017/sqlite-vec) — Vector similarity extension for SQLite
