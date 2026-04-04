@@ -234,7 +234,7 @@ async function renderDashboard(el) {
 
 async function renderFiles(el) {
   const data = await api('/ov/fs/ls?path=' + encodeURIComponent(currentPath));
-  const entries = data?.result?.entries || data?.result || [];
+  const entries = Array.isArray(data) ? data : (data?.result?.entries || data?.result || []);
 
   let html = '<h2 style="margin-bottom:16px">文件浏览</h2>';
   html += renderBreadcrumb(currentPath);
@@ -245,14 +245,18 @@ async function renderFiles(el) {
   }
 
   const sorted = [...entries].sort((a, b) => {
-    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    const aDir = a.is_dir || a.isDir;
+    const bDir = b.is_dir || b.isDir;
+    if (aDir !== bDir) return aDir ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 
   for (const e of sorted) {
-    const icon = e.is_dir ? 'icon-dir' : 'icon-file';
-    const symbol = e.is_dir ? '📁' : '📄';
-    const onclick = e.is_dir ? `onclick="navigateTo('${escapeJS(e.name)}')"` : `onclick="viewFile('${escapeJS(currentPath ? currentPath + '/' + e.name : e.name)}')"`;
+    const isDir = e.is_dir || e.isDir;
+    const icon = isDir ? 'icon-dir' : 'icon-file';
+    const symbol = isDir ? '📁' : '📄';
+    const onclick = isDir ? `onclick="navigateTo('${escapeJS(e.name)}')"` : `onclick="viewFile('${escapeJS(currentPath ? currentPath + '/' + e.name : e.name)}')"`;
+
     const size = e.size ? formatBytes(e.size) : '';
     html += `<li><span class="${icon}" style="cursor:pointer" ${onclick}>${symbol} ${escHtml(e.name)}</span><span style="margin-left:auto;color:var(--muted);font-size:12px">${size}</span></li>`;
   }
@@ -281,7 +285,7 @@ async function doSearch() {
   container.innerHTML = '<div class="loading">搜索中...</div>';
   try {
     const data = await api('/ov/search/find', { method: 'POST', body: JSON.stringify({ query: q, limit: 20 }) });
-    const results = data?.result?.results || data?.result || [];
+    const results = data?.result?.results || data?.resources || data?.result || [];
     if (results.length === 0) {
       container.innerHTML = '<div class="empty">未找到结果</div>';
       return;
