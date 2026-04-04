@@ -271,6 +271,7 @@ func main() {
 			RequestTimeoutSec: 30,
 			CORSOrigins:       []string{"*"},
 			APIKey:            cfg.Server.RootAPIKey,
+			ConsoleSecret:     cfg.Server.RootAPIKey,
 		}
 		mux.Handle("/console/", console.Handler(consoleCfg))
 		mux.Handle("/console", http.RedirectHandler("/console/", http.StatusMovedPermanently))
@@ -295,6 +296,7 @@ func main() {
 			RequestTimeoutSec: 30,
 			CORSOrigins:       []string{"*"},
 			APIKey:            cfg.Server.RootAPIKey,
+			ConsoleSecret:     cfg.Server.RootAPIKey,
 		}
 		mux.Handle("/console/", console.Handler(consoleCfg))
 		mux.Handle("/console", http.RedirectHandler("/console/", http.StatusMovedPermanently))

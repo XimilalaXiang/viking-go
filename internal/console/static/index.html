@@ -79,6 +79,7 @@ input:focus,textarea:focus{outline:none;border-color:var(--primary)}
     <span class="badge">Go</span>
     <div class="spacer"></div>
     <div class="status"><span class="dot" id="health-dot"></span><span id="health-text">连接中...</span></div>
+    <button class="btn" id="logout-btn" style="display:none;font-size:12px;padding:4px 12px" onclick="doLogout()">退出登录</button>
   </div>
   <div class="sidebar">
     <div class="section"><div class="section-label">概览</div></div>
@@ -122,7 +123,22 @@ let currentPath = '';
 async function api(path, opts = {}) {
   const url = API + path;
   const resp = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', ...opts.headers } });
+  if (resp.status === 401) { window.location.reload(); return {}; }
   return resp.json();
+}
+
+async function checkAuthStatus() {
+  try {
+    const data = await fetch(API + '/auth/status').then(r => r.json());
+    if (data.auth_required) {
+      document.getElementById('logout-btn').style.display = '';
+    }
+  } catch {}
+}
+
+async function doLogout() {
+  await fetch(API + '/auth/logout', { method: 'POST' });
+  window.location.reload();
 }
 
 function switchView(view) {
@@ -402,6 +418,7 @@ function formatBytes(bytes) {
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escapeJS(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
+checkAuthStatus();
 checkHealth();
 setInterval(checkHealth, 15000);
 render();
