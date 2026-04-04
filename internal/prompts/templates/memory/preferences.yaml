@@ -1,0 +1,17 @@
+memory_type: preferences
+description: "User preferences and tendencies"
+directory: "viking://user/{{.user}}/memories/preferences"
+filename_template: "{{.abstract_slug}}.md"
+enabled: true
+content_template: |
+  {{.content}}
+
+fields:
+  - name: abstract_slug
+    type: string
+    description: "URL-safe slug derived from abstract"
+    merge_op: immutable
+  - name: content
+    type: string
+    description: "Full preference content"
+    merge_op: patch

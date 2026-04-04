@@ -1,0 +1,34 @@
+metadata:
+  id: "skill.overview_generation"
+  name: "Skill Overview Generation"
+  description: "Generate an overview for a skill directory"
+  version: "1.0.0"
+  language: "en"
+  category: "skill"
+
+variables:
+  - name: "skill_name"
+    type: "string"
+    description: "Skill name"
+    required: true
+  - name: "files"
+    type: "string"
+    description: "List of files in the skill directory"
+    required: true
+
+template: |
+  Generate a concise overview for this skill.
+
+  Skill: {{.skill_name}}
+  Files:
+  {{.files}}
+
+  Describe:
+  1. What the skill does
+  2. When to use it
+  3. Key capabilities
+
+  Return plain text overview, no JSON.
+
+llm_config:
+  temperature: 0.0

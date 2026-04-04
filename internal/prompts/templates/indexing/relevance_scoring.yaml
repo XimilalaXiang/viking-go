@@ -1,0 +1,39 @@
+metadata:
+  id: "indexing.relevance_scoring"
+  name: "Relevance Scoring"
+  description: "Score the relevance of a document chunk to a query"
+  version: "1.0.0"
+  language: "en"
+  category: "indexing"
+
+variables:
+  - name: "query"
+    type: "string"
+    description: "Search query"
+    required: true
+  - name: "chunk"
+    type: "string"
+    description: "Document chunk to score"
+    required: true
+  - name: "context"
+    type: "string"
+    description: "Additional context"
+    required: false
+    default: ""
+
+template: |
+  Score the relevance of this document chunk to the given query.
+
+  Query: {{.query}}
+  {{if .context}}Context: {{.context}}{{end}}
+
+  Chunk:
+  {{.chunk}}
+
+  Score from 0.0 (completely irrelevant) to 1.0 (perfectly relevant).
+
+  Return JSON:
+  {"score": 0.0, "reason": "brief explanation"}
+
+llm_config:
+  temperature: 0.0

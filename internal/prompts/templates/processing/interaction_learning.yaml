@@ -1,0 +1,42 @@
+metadata:
+  id: "processing.interaction_learning"
+  name: "Interaction Learning"
+  description: "Learn from user-agent interaction patterns"
+  version: "1.0.0"
+  language: "en"
+  category: "processing"
+
+variables:
+  - name: "messages"
+    type: "string"
+    description: "Interaction messages"
+    required: true
+  - name: "agent_id"
+    type: "string"
+    description: "Agent identifier"
+    required: true
+
+template: |
+  Analyze the following agent-user interaction and extract learning insights.
+
+  Agent: {{.agent_id}}
+
+  Interaction:
+  {{.messages}}
+
+  Extract:
+  1. What worked well (successful patterns)
+  2. What could be improved (failure patterns)
+  3. User preferences observed
+  4. Recommended adjustments
+
+  Return JSON:
+  {
+    "successful_patterns": ["pattern1"],
+    "failure_patterns": ["pattern1"],
+    "user_preferences": ["pref1"],
+    "recommendations": ["rec1"]
+  }
+
+llm_config:
+  temperature: 0.0

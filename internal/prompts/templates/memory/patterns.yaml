@@ -1,0 +1,17 @@
+memory_type: patterns
+description: "Reusable processes and methods"
+directory: "viking://user/{{.user}}/memories/patterns"
+filename_template: "{{.abstract_slug}}.md"
+enabled: true
+content_template: |
+  {{.content}}
+
+fields:
+  - name: abstract_slug
+    type: string
+    description: "URL-safe slug derived from abstract"
+    merge_op: immutable
+  - name: content
+    type: string
+    description: "Full pattern content"
+    merge_op: patch

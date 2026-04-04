@@ -1,0 +1,34 @@
+metadata:
+  id: "semantic.generate_overview"
+  name: "Generate Overview"
+  description: "Generate a medium-detail overview (L1) for a directory"
+  version: "1.0.0"
+  language: "en"
+  category: "semantic"
+
+variables:
+  - name: "uri"
+    type: "string"
+    description: "Directory URI"
+    required: true
+  - name: "abstract"
+    type: "string"
+    description: "L0 abstract"
+    required: true
+  - name: "children"
+    type: "string"
+    description: "Children files listing"
+    required: true
+
+template: |
+  Generate a medium-detail overview (L1) for this directory based on its contents.
+
+  Directory URI: {{.uri}}
+  Abstract: {{.abstract}}
+  Children files:
+  {{.children}}
+
+  Return only the overview text (2-5 sentences), no JSON.
+
+llm_config:
+  temperature: 0.0

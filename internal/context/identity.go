@@ -6,8 +6,9 @@ import "fmt"
 type Role string
 
 const (
-	RoleRoot Role = "root"
-	RoleUser Role = "user"
+	RoleRoot  Role = "root"
+	RoleAdmin Role = "admin"
+	RoleUser  Role = "user"
 )
 
 // UserIdentifier represents a user with account, user, and agent IDs.

@@ -1,0 +1,55 @@
+memory_type: tools
+description: "Tool usage memory template for recording tool call statistics and guidelines"
+directory: "viking://agent/{{.agent_space}}/memories/tools"
+filename_template: "{{.tool_name}}.md"
+enabled: true
+content_template: |
+  Tool: {{.tool_name}}
+
+  Static Description: "{{.static_desc}}"
+
+  - Call count: {{.call_count}}
+  - Success count: {{.success_time}}
+  - Best for: {{.best_for}}
+  - Optimal params: {{.optimal_params}}
+  - Common failures: {{.common_failures}}
+  - Recommendation: {{.recommendation}}
+
+  {{.guidelines}}
+
+fields:
+  - name: tool_name
+    type: string
+    description: "Tool name, copied exactly from [ToolCall] records"
+    merge_op: immutable
+  - name: static_desc
+    type: string
+    description: "Static description of the tool"
+  - name: call_count
+    type: int64
+    description: "Total number of tool calls"
+    merge_op: sum
+  - name: success_time
+    type: int64
+    description: "Number of successful tool calls"
+    merge_op: sum
+  - name: best_for
+    type: string
+    description: "Best use cases for the tool"
+    merge_op: patch
+  - name: optimal_params
+    type: string
+    description: "Optimal parameter ranges/best practices"
+    merge_op: patch
+  - name: common_failures
+    type: string
+    description: "Common failure patterns"
+    merge_op: patch
+  - name: recommendation
+    type: string
+    description: "Actionable recommendations"
+    merge_op: patch
+  - name: guidelines
+    type: string
+    description: "Full usage guidelines with Good/Bad Cases"
+    merge_op: patch

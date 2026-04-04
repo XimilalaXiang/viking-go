@@ -1,0 +1,29 @@
+metadata:
+  id: "semantic.generate_abstract"
+  name: "Generate Abstract"
+  description: "Generate a one-line abstract (L0 summary) for a directory"
+  version: "1.0.0"
+  language: "en"
+  category: "semantic"
+
+variables:
+  - name: "uri"
+    type: "string"
+    description: "Directory URI"
+    required: true
+  - name: "children"
+    type: "string"
+    description: "Children files listing"
+    required: true
+
+template: |
+  Generate a one-line abstract (L0 summary) for this directory based on its contents.
+
+  Directory URI: {{.uri}}
+  Children files:
+  {{.children}}
+
+  Return only the abstract text, no JSON.
+
+llm_config:
+  temperature: 0.0

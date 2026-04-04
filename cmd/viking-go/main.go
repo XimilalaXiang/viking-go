@@ -173,7 +173,7 @@ func main() {
 	}
 
 	// Build HTTP mux: REST API + optional MCP endpoint
-	srv := server.NewServer(store, vfs, ret, idx, cfg.Server.AuthMode, cfg.Server.RootAPIKey, watchMgr, bridge)
+	srv := server.NewServer(store, vfs, ret, idx, cfg.Server.AuthMode, cfg.Server.RootAPIKey, watchMgr, bridge, embQueue)
 	addr := server.Addr(cfg.Server.Host, cfg.Server.Port)
 
 	if cfg.Server.MCPEnabled {
@@ -192,7 +192,13 @@ func main() {
 		mux.Handle(mcpPath, httpHandler)
 		mux.Handle(mcpPath+"/", httpHandler)
 		mux.Handle("/metrics", metrics.Handler())
-		mux.Handle("/console/", http.StripPrefix("/console/", console.Handler()))
+		consoleCfg := console.Config{
+			UpstreamBaseURL:   "http://" + addr,
+			WriteEnabled:      false,
+			RequestTimeoutSec: 30,
+			CORSOrigins:       []string{"*"},
+		}
+		mux.Handle("/console/", console.Handler(consoleCfg))
 		mux.Handle("/console", http.RedirectHandler("/console/", http.StatusMovedPermanently))
 		mux.Handle("/", srv)
 
@@ -209,7 +215,13 @@ func main() {
 	} else {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", metrics.Handler())
-		mux.Handle("/console/", http.StripPrefix("/console/", console.Handler()))
+		consoleCfg := console.Config{
+			UpstreamBaseURL:   "http://" + addr,
+			WriteEnabled:      false,
+			RequestTimeoutSec: 30,
+			CORSOrigins:       []string{"*"},
+		}
+		mux.Handle("/console/", console.Handler(consoleCfg))
 		mux.Handle("/console", http.RedirectHandler("/console/", http.StatusMovedPermanently))
 		mux.Handle("/", srv)
 

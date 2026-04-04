@@ -15,18 +15,34 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// ToolDef defines a tool the LLM can invoke.
+type ToolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// ToolCall represents a tool invocation requested by the LLM.
+type ToolCall struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+}
+
 // Response is the result of an LLM completion call.
 type Response struct {
-	Content      string `json:"content"`
-	FinishReason string `json:"finish_reason"`
-	PromptTokens int    `json:"prompt_tokens"`
-	CompTokens   int    `json:"completion_tokens"`
+	Content      string     `json:"content"`
+	FinishReason string     `json:"finish_reason"`
+	PromptTokens int        `json:"prompt_tokens"`
+	CompTokens   int        `json:"completion_tokens"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // Client is the interface for LLM providers.
 type Client interface {
 	Complete(messages []Message) (*Response, error)
 	CompleteWithPrompt(prompt string) (*Response, error)
+	ChatWithTools(messages []Message, tools []ToolDef) (*Response, error)
 }
 
 // Config configures an LLM client.
@@ -90,17 +106,47 @@ func (c *openAIClient) CompleteWithPrompt(prompt string) (*Response, error) {
 	return c.Complete([]Message{{Role: "user", Content: prompt}})
 }
 
+func (c *openAIClient) ChatWithTools(messages []Message, tools []ToolDef) (*Response, error) {
+	var lastErr error
+	for attempt := 0; attempt <= c.cfg.MaxRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(1<<uint(attempt-1)) * 500 * time.Millisecond
+			if delay > 5*time.Second {
+				delay = 5 * time.Second
+			}
+			time.Sleep(delay)
+		}
+		resp, err := c.doRequestWithTools(messages, tools)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("LLM tool call failed after %d attempts: %w", c.cfg.MaxRetries+1, lastErr)
+}
+
 type chatRequest struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
+	Tools       []any     `json:"tools,omitempty"`
+}
+
+type chatResponseToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 type chatResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content   string                 `json:"content"`
+			ToolCalls []chatResponseToolCall  `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -170,4 +216,88 @@ func (c *openAIClient) doRequest(messages []Message) (*Response, error) {
 		PromptTokens: apiResp.Usage.PromptTokens,
 		CompTokens:   apiResp.Usage.CompletionTokens,
 	}, nil
+}
+
+func (c *openAIClient) doRequestWithTools(messages []Message, tools []ToolDef) (*Response, error) {
+	var apiTools []any
+	for _, t := range tools {
+		apiTools = append(apiTools, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        t.Name,
+				"description": t.Description,
+				"parameters":  t.Parameters,
+			},
+		})
+	}
+
+	reqBody := chatRequest{
+		Model:       c.cfg.Model,
+		Messages:    messages,
+		Temperature: c.cfg.Temperature,
+		Tools:       apiTools,
+	}
+	if c.cfg.MaxTokens > 0 {
+		reqBody.MaxTokens = c.cfg.MaxTokens
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+
+	url := c.cfg.APIBase + "/chat/completions"
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var apiResp chatResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w", err)
+	}
+	if apiResp.Error != nil {
+		return nil, fmt.Errorf("API error: %s", apiResp.Error.Message)
+	}
+	if len(apiResp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	result := &Response{
+		Content:      apiResp.Choices[0].Message.Content,
+		FinishReason: apiResp.Choices[0].FinishReason,
+		PromptTokens: apiResp.Usage.PromptTokens,
+		CompTokens:   apiResp.Usage.CompletionTokens,
+	}
+
+	for _, tc := range apiResp.Choices[0].Message.ToolCalls {
+		var args map[string]any
+		json.Unmarshal([]byte(tc.Function.Arguments), &args)
+		result.ToolCalls = append(result.ToolCalls, ToolCall{
+			ID:        tc.ID,
+			Name:      tc.Function.Name,
+			Arguments: args,
+		})
+	}
+
+	return result, nil
 }

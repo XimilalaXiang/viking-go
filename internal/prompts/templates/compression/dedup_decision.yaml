@@ -1,0 +1,70 @@
+metadata:
+  id: "compression.dedup_decision"
+  name: "Memory Deduplication Decision"
+  description: "Decide candidate action (skip/create/none) and per-memory actions (merge/delete)"
+  version: "3.3.1"
+  language: "en"
+  category: "compression"
+
+variables:
+  - name: "candidate_content"
+    type: "string"
+    description: "Candidate memory content (L2)"
+    required: true
+  - name: "candidate_abstract"
+    type: "string"
+    description: "Candidate memory abstract (L0)"
+    required: true
+  - name: "candidate_overview"
+    type: "string"
+    description: "Candidate memory overview (L1)"
+    required: true
+  - name: "existing_memories"
+    type: "string"
+    description: "List of existing similar memories"
+    required: true
+
+template: |
+  You are deciding how to update long-term memory with:
+  1) one candidate memory (new fact)
+  2) existing similar memories (retrieved from store)
+
+  Candidate memory:
+  - Abstract: {{.candidate_abstract}}
+  - Overview: {{.candidate_overview}}
+  - Content: {{.candidate_content}}
+
+  Existing similar memories:
+  {{.existing_memories}}
+
+  Goal: Keep memory consistent and useful while minimizing destructive edits.
+
+  Candidate-level decision:
+  - skip: Candidate adds no useful new info (duplicate, paraphrase, too weak).
+  - create: Candidate is a valid new memory that should be stored separately.
+  - none: Candidate should not be stored, but existing memories need reconciliation.
+
+  Existing-memory per-item action:
+  - merge: Existing and candidate are about the same subject and should be unified.
+  - delete: Existing memory is fully invalidated by candidate (not just partial conflict).
+
+  Critical delete boundary:
+  - If conflict is partial, DO NOT delete. Use merge instead.
+  - Delete only when the whole existing memory is obsolete/invalidated.
+
+  Hard constraints:
+  - If decision is "skip", do not return "list".
+  - If any list item uses "merge", decision must be "none".
+  - If decision is "create", list can be empty or contain delete items only.
+  - Use uri exactly from existing memories list.
+  - Return JSON only, no prose.
+
+  Return JSON:
+  {
+    "decision": "skip|create|none",
+    "reason": "short reason",
+    "list": [{"uri": "<existing memory uri>", "decide": "merge|delete", "reason": "..."}]
+  }
+
+llm_config:
+  temperature: 0.0

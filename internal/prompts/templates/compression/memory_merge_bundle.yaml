@@ -1,0 +1,63 @@
+metadata:
+  id: "compression.memory_merge_bundle"
+  name: "Memory Merge Bundle"
+  description: "Merge two memory entries into one cohesive entry"
+  version: "2.0.0"
+  language: "en"
+  category: "compression"
+
+variables:
+  - name: "existing_abstract"
+    type: "string"
+    description: "Existing memory abstract (L0)"
+    required: true
+  - name: "existing_overview"
+    type: "string"
+    description: "Existing memory overview (L1)"
+    required: true
+  - name: "existing_content"
+    type: "string"
+    description: "Existing memory content (L2)"
+    required: true
+  - name: "new_abstract"
+    type: "string"
+    description: "New memory abstract (L0)"
+    required: true
+  - name: "new_overview"
+    type: "string"
+    description: "New memory overview (L1)"
+    required: true
+  - name: "new_content"
+    type: "string"
+    description: "New memory content (L2)"
+    required: true
+  - name: "category"
+    type: "string"
+    description: "Memory category"
+    required: true
+  - name: "output_language"
+    type: "string"
+    description: "Output language"
+    required: false
+    default: "en"
+
+template: |
+  Merge these two memory entries into one cohesive entry.
+
+  Existing:
+  - Abstract: {{.existing_abstract}}
+  - Overview: {{.existing_overview}}
+  - Content: {{.existing_content}}
+
+  New:
+  - Abstract: {{.new_abstract}}
+  - Overview: {{.new_overview}}
+  - Content: {{.new_content}}
+
+  Category: {{.category}}
+  Output language: {{.output_language}}
+
+  Return JSON: {"decision": "merge", "abstract": "...", "overview": "...", "content": "...", "reason": "..."}
+
+llm_config:
+  temperature: 0.0

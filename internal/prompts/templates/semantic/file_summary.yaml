@@ -1,0 +1,37 @@
+metadata:
+  id: "semantic.file_summary"
+  name: "File Summary"
+  description: "Generate summary for generic files"
+  version: "1.0.0"
+  language: "en"
+  category: "semantic"
+
+variables:
+  - name: "file_name"
+    type: "string"
+    description: "File name with extension"
+    required: true
+  - name: "content"
+    type: "string"
+    description: "File content"
+    required: true
+    max_length: 6000
+  - name: "output_language"
+    type: "string"
+    description: "Language code for output"
+    required: false
+    default: "en"
+
+template: |
+  Output Language: {{.output_language}}
+
+  Generate a concise summary (50-150 words) for this file.
+
+  File: {{.file_name}}
+  Content:
+  {{.content}}
+
+  Output plain text summary, no JSON.
+
+llm_config:
+  temperature: 0.0

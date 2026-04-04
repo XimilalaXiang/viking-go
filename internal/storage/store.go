@@ -347,6 +347,23 @@ func (s *Store) Stats() (map[string]any, error) {
 }
 
 // DB returns the underlying sql.DB for advanced operations.
+// ListByFilter returns contexts matching a filter, up to limit.
+func (s *Store) ListByFilter(filter FilterExpr, limit int) ([]*ctx.Context, error) {
+	return s.Query(filter, limit, 0, "updated_at", true)
+}
+
+// GetByURI returns a single context by URI, or nil if not found.
+func (s *Store) GetByURI(uri string) (*ctx.Context, error) {
+	results, err := s.Query(Eq{Field: "uri", Value: uri}, 1, 0, "", false)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+	return results[0], nil
+}
+
 func (s *Store) DB() *sql.DB {
 	return s.db
 }

@@ -1,0 +1,42 @@
+metadata:
+  id: "semantic.document_summary"
+  name: "Document Summary"
+  description: "Generate summary for document files"
+  version: "1.0.0"
+  language: "en"
+  category: "semantic"
+
+variables:
+  - name: "file_name"
+    type: "string"
+    description: "File name with extension"
+    required: true
+  - name: "content"
+    type: "string"
+    description: "Document content"
+    required: true
+    max_length: 8000
+  - name: "output_language"
+    type: "string"
+    description: "Language code for output"
+    required: false
+    default: "en"
+
+template: |
+  Output Language: {{.output_language}}
+
+  Generate a concise summary (100-300 words) for the following document.
+
+  File Name: {{.file_name}}
+  Content:
+  {{.content}}
+
+  Output requirements:
+  - Length: 100-300 words
+  - Capture the main topics and key points
+  - Preserve important technical terms
+  - Include relevant keywords for semantic search
+  - Output plain text directly, no JSON
+
+llm_config:
+  temperature: 0.0

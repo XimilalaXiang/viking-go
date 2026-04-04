@@ -1,0 +1,36 @@
+metadata:
+  id: "parsing.context_generation"
+  name: "Context Generation"
+  description: "Generate context for document chunks to improve retrieval"
+  version: "1.0.0"
+  language: "en"
+  category: "parsing"
+
+variables:
+  - name: "chunk"
+    type: "string"
+    description: "Document chunk"
+    required: true
+  - name: "document_summary"
+    type: "string"
+    description: "Summary of the full document"
+    required: true
+  - name: "file_name"
+    type: "string"
+    description: "Source file name"
+    required: true
+
+template: |
+  Generate a brief context prefix for this document chunk to improve retrieval accuracy.
+
+  Document: {{.file_name}}
+  Document Summary: {{.document_summary}}
+
+  Chunk:
+  {{.chunk}}
+
+  Generate a 1-2 sentence context that situates this chunk within the document.
+  Return only the context text, no JSON.
+
+llm_config:
+  temperature: 0.0

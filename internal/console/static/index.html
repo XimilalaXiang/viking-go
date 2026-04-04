@@ -3,437 +3,406 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Viking-Go Console</title>
+<title>Viking Console</title>
 <style>
-:root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --border: #2a2d3a;
-  --text: #e4e6ef;
-  --muted: #8b8fa3;
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --radius: 8px;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.6;
-}
-
-.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
-}
-
-header h1 { font-size: 1.5rem; font-weight: 600; }
-header h1 span { color: var(--accent); }
-
-.status-badge {
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-.status-badge.online { background: rgba(34,197,94,0.15); color: var(--success); }
-.status-badge.offline { background: rgba(239,68,68,0.15); color: var(--error); }
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
-}
-
-.tab {
-  padding: 10px 20px;
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 0.9rem;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-.panel { display: none; }
-.panel.active { display: block; }
-
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 24px; }
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-}
-
-.card-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.card-value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
-.card-value.accent { color: var(--accent); }
-
-.search-box {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-input, textarea {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  font-size: 0.9rem;
-  width: 100%;
-  outline: none;
-  transition: border-color 0.2s;
-}
-input:focus, textarea:focus { border-color: var(--accent); }
-
-button {
-  background: var(--accent);
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 500;
-  transition: background 0.2s;
-  white-space: nowrap;
-}
-button:hover { background: var(--accent-hover); }
-button.secondary {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-}
-button.secondary:hover { border-color: var(--accent); }
-
-.results {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  max-height: 500px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  font-family: "JetBrains Mono", "Fira Code", monospace;
-  font-size: 0.85rem;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.result-item {
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
-}
-.result-item:last-child { border-bottom: none; }
-.result-item .uri { color: var(--accent); font-weight: 500; }
-.result-item .score { color: var(--warning); font-size: 0.8rem; }
-.result-item .abstract { color: var(--muted); margin-top: 4px; font-size: 0.85rem; }
-.result-item .type-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-.type-badge.memory { background: rgba(99,102,241,0.15); color: var(--accent); }
-.type-badge.resource { background: rgba(34,197,94,0.15); color: var(--success); }
-.type-badge.skill { background: rgba(245,158,11,0.15); color: var(--warning); }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-th, td {
-  padding: 10px 14px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
-}
-th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
-
-.tree-item { padding: 4px 0; font-family: monospace; font-size: 0.85rem; }
-.tree-dir { color: var(--accent); font-weight: 500; }
-
-.form-group { margin-bottom: 16px; }
-.form-group label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
-
-.row { display: flex; gap: 12px; }
-.row > * { flex: 1; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f1117;--surface:#181a24;--border:#2a2d3a;--text:#e1e4ed;--muted:#8b8fa3;--primary:#6366f1;--primary-hover:#818cf8;--success:#22c55e;--warn:#f59e0b;--danger:#ef4444;--radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--primary);text-decoration:none}
+a:hover{color:var(--primary-hover)}
+.app{display:grid;grid-template-columns:240px 1fr;grid-template-rows:56px 1fr;height:100vh}
+.header{grid-column:1/-1;display:flex;align-items:center;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--border);gap:16px}
+.header h1{font-size:16px;font-weight:600;color:var(--text)}
+.header .badge{font-size:11px;padding:2px 8px;border-radius:12px;background:var(--primary);color:#fff}
+.header .spacer{flex:1}
+.header .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.header .dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
+.header .dot.error{background:var(--danger)}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:16px 0;overflow-y:auto}
+.sidebar .section{padding:0 16px;margin-bottom:8px}
+.sidebar .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:4px}
+.sidebar .nav-item{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:var(--radius);margin:2px 8px;transition:all .15s}
+.sidebar .nav-item:hover{color:var(--text);background:rgba(99,102,241,.08)}
+.sidebar .nav-item.active{color:var(--primary);background:rgba(99,102,241,.12)}
+.sidebar .nav-item svg{width:16px;height:16px;flex-shrink:0}
+.main{padding:24px;overflow-y:auto}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.panel h2{font-size:15px;font-weight:600;margin-bottom:12px}
+.panel h3{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.stat{text-align:center}
+.stat .value{font-size:28px;font-weight:700;color:var(--primary)}
+.stat .label{font-size:12px;color:var(--muted);margin-top:2px}
+.health-card{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius)}
+.health-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.health-dot.ok{background:var(--success)}
+.health-dot.warn{background:var(--warn)}
+.health-dot.err{background:var(--danger)}
+.health-card .info{flex:1}
+.health-card .info .name{font-size:13px;font-weight:600}
+.health-card .info .status{font-size:12px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)}
+td{padding:8px 12px;border-bottom:1px solid var(--border)}
+.file-list{list-style:none}
+.file-list li{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)}
+.file-list li:last-child{border-bottom:none}
+.icon-dir{color:var(--warn)}
+.icon-file{color:var(--muted)}
+.breadcrumb{display:flex;align-items:center;gap:4px;font-size:13px;margin-bottom:12px;flex-wrap:wrap}
+.breadcrumb span{color:var(--muted);cursor:pointer}
+.breadcrumb span:hover{color:var(--text)}
+.breadcrumb span.current{color:var(--text);font-weight:600}
+input[type=text],textarea{width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--font);font-size:13px}
+input:focus,textarea:focus{outline:none;border-color:var(--primary)}
+.btn{padding:6px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;cursor:pointer;transition:all .15s}
+.btn:hover{background:var(--border)}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-hover)}
+.search-bar{display:flex;gap:8px;margin-bottom:16px}
+.search-bar input{flex:1}
+.content-view{background:var(--bg);padding:16px;border-radius:var(--radius);font-family:'SF Mono',Menlo,monospace;font-size:13px;white-space:pre-wrap;max-height:600px;overflow-y:auto;border:1px solid var(--border)}
+.tab-bar{display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.tab{padding:8px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+.loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted)}
+.empty{text-align:center;padding:40px;color:var(--muted)}
+@media(max-width:768px){.app{grid-template-columns:1fr}.sidebar{display:none}.grid-2,.grid-3{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="container">
-  <header>
-    <h1><span>Viking</span>-Go Console</h1>
-    <span id="status-badge" class="status-badge offline">Checking...</span>
-  </header>
-
-  <div class="tabs">
-    <button class="tab active" data-tab="dashboard">Dashboard</button>
-    <button class="tab" data-tab="search">Search</button>
-    <button class="tab" data-tab="browse">Browse</button>
-    <button class="tab" data-tab="watch">Watch</button>
-    <button class="tab" data-tab="metrics">Metrics</button>
+<div class="app" id="app">
+  <div class="header">
+    <h1>Viking Console</h1>
+    <span class="badge">Go</span>
+    <div class="spacer"></div>
+    <div class="status"><span class="dot" id="health-dot"></span><span id="health-text">connecting...</span></div>
   </div>
-
-  <!-- Dashboard -->
-  <div id="dashboard" class="panel active">
-    <div class="grid" id="stats-grid"></div>
-    <div class="card">
-      <div class="card-label">Queue Status</div>
-      <div id="queue-stats" style="margin-top:8px;font-size:0.9rem;color:var(--muted)">Loading...</div>
+  <div class="sidebar">
+    <div class="section"><div class="section-label">Overview</div></div>
+    <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="section" style="margin-top:12px"><div class="section-label">Data</div></div>
+    <div class="nav-item" data-view="files" onclick="switchView('files')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+      File Browser
+    </div>
+    <div class="nav-item" data-view="search" onclick="switchView('search')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      Search
+    </div>
+    <div class="nav-item" data-view="vectors" onclick="switchView('vectors')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Vectors
+    </div>
+    <div class="section" style="margin-top:12px"><div class="section-label">System</div></div>
+    <div class="nav-item" data-view="observer" onclick="switchView('observer')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Observer
+    </div>
+    <div class="nav-item" data-view="tasks" onclick="switchView('tasks')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      Tasks
     </div>
   </div>
-
-  <!-- Search -->
-  <div id="search" class="panel">
-    <div class="search-box">
-      <input type="text" id="search-query" placeholder="Enter your query...">
-      <button onclick="doSearch()">Search</button>
-    </div>
-    <div id="search-results" class="results">Enter a query and press Search</div>
-  </div>
-
-  <!-- Browse -->
-  <div id="browse" class="panel">
-    <div class="search-box">
-      <input type="text" id="browse-uri" placeholder="viking://" value="viking://">
-      <button onclick="doBrowse()">List</button>
-      <button class="secondary" onclick="doTree()">Tree</button>
-    </div>
-    <div id="browse-results" class="results">Click List or Tree to browse</div>
-  </div>
-
-  <!-- Watch -->
-  <div id="watch" class="panel">
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-label">Create Watch Task</div>
-      <div class="row" style="margin-top:12px">
-        <div class="form-group">
-          <label>Source Path</label>
-          <input type="text" id="watch-source" placeholder="/path/to/directory">
-        </div>
-        <div class="form-group">
-          <label>Target URI</label>
-          <input type="text" id="watch-target" placeholder="viking://resources/my-docs">
-        </div>
-        <div class="form-group">
-          <label>Interval (min)</label>
-          <input type="number" id="watch-interval" value="60" style="width:100px">
-        </div>
-        <div class="form-group" style="display:flex;align-items:flex-end">
-          <button onclick="createWatch()">Create</button>
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-label">Active Tasks</div>
-      <div id="watch-list" style="margin-top:12px">Loading...</div>
-    </div>
-  </div>
-
-  <!-- Metrics -->
-  <div id="metrics" class="panel">
-    <button onclick="loadMetrics()" style="margin-bottom:16px">Refresh</button>
-    <div id="metrics-output" class="results">Click Refresh to load metrics</div>
+  <div class="main" id="main-content">
+    <div class="loading">Loading...</div>
   </div>
 </div>
 
 <script>
-const API = '';
+const API = '/console/api/v1';
+let currentView = 'dashboard';
+let currentPath = '';
 
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById(tab.dataset.tab).classList.add('active');
-  });
-});
-
-async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(API + path, opts);
-  return res.json();
+async function api(path, opts = {}) {
+  const url = API + path;
+  const resp = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', ...opts.headers } });
+  return resp.json();
 }
 
-async function loadDashboard() {
-  try {
-    const health = await fetch(API + '/health').then(r => r.json());
-    const badge = document.getElementById('status-badge');
-    badge.textContent = health.status === 'ok' ? 'Online' : 'Offline';
-    badge.className = 'status-badge ' + (health.status === 'ok' ? 'online' : 'offline');
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  render();
+}
 
-    const stats = await api('GET', '/api/v1/system/status');
-    const grid = document.getElementById('stats-grid');
-    grid.innerHTML = '';
-    const items = [
-      ['Total Contexts', stats.total_contexts || 0],
-      ['Memories', stats.memory_count || 0],
-      ['Resources', stats.resource_count || 0],
-      ['Vector Dimensions', stats.vector_dimension || 0],
-    ];
-    if (stats.contexts_by_type) {
-      for (const [k, v] of Object.entries(stats.contexts_by_type)) {
-        items.push([k, v]);
-      }
+async function checkHealth() {
+  try {
+    const d = await api('/ov/debug/health');
+    const dot = document.getElementById('health-dot');
+    const txt = document.getElementById('health-text');
+    if (d.status === 'ok') {
+      dot.className = 'dot'; txt.textContent = 'healthy';
+    } else {
+      dot.className = 'dot error'; txt.textContent = 'error';
     }
-    items.forEach(([label, value]) => {
-      grid.innerHTML += `<div class="card"><div class="card-label">${label}</div><div class="card-value accent">${value}</div></div>`;
-    });
-  } catch (e) {
-    document.getElementById('status-badge').textContent = 'Offline';
-    document.getElementById('status-badge').className = 'status-badge offline';
+  } catch {
+    document.getElementById('health-dot').className = 'dot error';
+    document.getElementById('health-text').textContent = 'offline';
   }
+}
+
+async function render() {
+  const el = document.getElementById('main-content');
+  el.innerHTML = '<div class="loading">Loading...</div>';
+
+  try {
+    switch (currentView) {
+      case 'dashboard': await renderDashboard(el); break;
+      case 'files': await renderFiles(el); break;
+      case 'search': renderSearch(el); break;
+      case 'vectors': await renderVectors(el); break;
+      case 'observer': await renderObserver(el); break;
+      case 'tasks': await renderTasks(el); break;
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="panel"><h2>Error</h2><p>${e.message}</p></div>`;
+  }
+}
+
+async function renderDashboard(el) {
+  const [sys, mem, vec] = await Promise.all([
+    api('/ov/observer/system').catch(() => null),
+    api('/ov/stats/memories').catch(() => null),
+    api('/ov/debug/vector/count').catch(() => null),
+  ]);
+
+  let html = '<h2 style="margin-bottom:16px">Dashboard</h2>';
+
+  const sysR = sys?.result || {};
+  const uptime = sysR.uptime_seconds || 0;
+  const memR = mem?.result || {};
+  const vecR = vec?.result || {};
+
+  html += '<div class="grid-3">';
+  html += `<div class="panel stat"><div class="value">${formatUptime(uptime)}</div><div class="label">Uptime</div></div>`;
+  html += `<div class="panel stat"><div class="value">${memR.total || 0}</div><div class="label">Memories</div></div>`;
+  html += `<div class="panel stat"><div class="value">${vecR.count || 0}</div><div class="label">Vectors</div></div>`;
+  html += '</div>';
+
+  const comps = sysR.components || {};
+  html += '<div class="panel"><h3>Components</h3><div class="grid-3" style="margin-top:12px">';
+  for (const [name, info] of Object.entries(comps)) {
+    const dotClass = info.is_healthy ? 'ok' : 'err';
+    html += `<div class="health-card"><div class="health-dot ${dotClass}"></div><div class="info"><div class="name">${name}</div><div class="status">${info.status || (info.is_healthy ? 'healthy' : 'unhealthy')}</div></div></div>`;
+  }
+  html += '</div></div>';
+
+  const rt = sysR.runtime || {};
+  if (rt.goroutines) {
+    html += '<div class="panel"><h3>Runtime</h3><div class="grid-3" style="margin-top:12px">';
+    html += `<div class="stat"><div class="value">${rt.goroutines}</div><div class="label">Goroutines</div></div>`;
+    html += `<div class="stat"><div class="value">${formatBytes(rt.heap_alloc || 0)}</div><div class="label">Heap</div></div>`;
+    html += `<div class="stat"><div class="value">${rt.gc_cycles || 0}</div><div class="label">GC Cycles</div></div>`;
+    html += '</div></div>';
+  }
+
+  if (memR.by_category) {
+    html += '<div class="panel"><h3>Memory Categories</h3><table style="margin-top:8px"><tr><th>Category</th><th>Count</th></tr>';
+    for (const [cat, cnt] of Object.entries(memR.by_category)) {
+      html += `<tr><td>${cat}</td><td>${cnt}</td></tr>`;
+    }
+    html += '</table></div>';
+  }
+
+  el.innerHTML = html;
+}
+
+async function renderFiles(el) {
+  const data = await api('/ov/fs/ls?path=' + encodeURIComponent(currentPath));
+  const entries = data?.result?.entries || data?.result || [];
+
+  let html = '<h2 style="margin-bottom:16px">File Browser</h2>';
+  html += renderBreadcrumb(currentPath);
+  html += '<div class="panel"><ul class="file-list">';
+
+  if (currentPath) {
+    html += `<li><span class="icon-dir" style="cursor:pointer" onclick="navigateUp()">.. (parent)</span></li>`;
+  }
+
+  const sorted = [...entries].sort((a, b) => {
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  for (const e of sorted) {
+    const icon = e.is_dir ? 'icon-dir' : 'icon-file';
+    const symbol = e.is_dir ? '📁' : '📄';
+    const onclick = e.is_dir ? `onclick="navigateTo('${escapeJS(e.name)}')"` : `onclick="viewFile('${escapeJS(currentPath ? currentPath + '/' + e.name : e.name)}')"`;
+    const size = e.size ? formatBytes(e.size) : '';
+    html += `<li><span class="${icon}" style="cursor:pointer" ${onclick}>${symbol} ${escHtml(e.name)}</span><span style="margin-left:auto;color:var(--muted);font-size:12px">${size}</span></li>`;
+  }
+
+  if (sorted.length === 0) html += '<li class="empty">Empty directory</li>';
+  html += '</ul></div>';
+  el.innerHTML = html;
+}
+
+function renderSearch(el) {
+  el.innerHTML = `
+    <h2 style="margin-bottom:16px">Search</h2>
+    <div class="panel">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search query..." onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn btn-primary" onclick="doSearch()">Search</button>
+      </div>
+      <div id="search-results"><div class="empty">Enter a query to search memories and resources</div></div>
+    </div>`;
 }
 
 async function doSearch() {
-  const query = document.getElementById('search-query').value;
-  if (!query) return;
-  const el = document.getElementById('search-results');
-  el.textContent = 'Searching...';
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const container = document.getElementById('search-results');
+  container.innerHTML = '<div class="loading">Searching...</div>';
   try {
-    const result = await api('POST', '/api/v1/search/find', { query, limit: 20 });
-    const all = [...(result.memories||[]), ...(result.resources||[]), ...(result.skills||[])];
-    if (all.length === 0) {
-      el.textContent = 'No results found.';
+    const data = await api('/ov/search/find', { method: 'POST', body: JSON.stringify({ query: q, limit: 20 }) });
+    const results = data?.result?.results || data?.result || [];
+    if (results.length === 0) {
+      container.innerHTML = '<div class="empty">No results found</div>';
       return;
     }
-    el.innerHTML = all.map(m => {
-      const typeClass = m.context_type || 'resource';
-      return `<div class="result-item">
-        <span class="type-badge ${typeClass}">${typeClass}</span>
-        <span class="score">[${(m.score||0).toFixed(3)}]</span>
-        <div class="uri">${m.uri}</div>
-        <div class="abstract">${m.abstract || ''}</div>
-      </div>`;
-    }).join('');
-  } catch (e) {
-    el.textContent = 'Error: ' + e.message;
-  }
-}
-
-async function doBrowse() {
-  const uri = document.getElementById('browse-uri').value || 'viking://';
-  const el = document.getElementById('browse-results');
-  el.textContent = 'Loading...';
-  try {
-    const entries = await api('GET', '/api/v1/fs/ls?uri=' + encodeURIComponent(uri));
-    if (!entries || entries.length === 0) {
-      el.textContent = 'Empty directory.';
-      return;
+    let html = '<table><tr><th>URI</th><th>Type</th><th>Score</th><th>Abstract</th></tr>';
+    for (const r of results) {
+      html += `<tr><td>${escHtml(r.uri || r.id || '')}</td><td>${escHtml(r.context_type || '')}</td><td>${(r.score || 0).toFixed(3)}</td><td>${escHtml((r.abstract || '').slice(0, 80))}</td></tr>`;
     }
-    el.innerHTML = '<table><tr><th>Name</th><th>Type</th><th>Size</th><th>URI</th></tr>' +
-      entries.map(e => `<tr>
-        <td>${e.isDir ? '📁' : '📄'} ${e.name}</td>
-        <td>${e.isDir ? 'DIR' : 'FILE'}</td>
-        <td>${e.size || 0}</td>
-        <td style="color:var(--accent);cursor:pointer" onclick="document.getElementById('browse-uri').value='${e.uri}';doBrowse()">${e.uri}</td>
-      </tr>`).join('') + '</table>';
+    html += '</table>';
+    container.innerHTML = html;
   } catch (e) {
-    el.textContent = 'Error: ' + e.message;
+    container.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
   }
 }
 
-async function doTree() {
-  const uri = document.getElementById('browse-uri').value || 'viking://';
-  const el = document.getElementById('browse-results');
-  el.textContent = 'Loading...';
-  try {
-    const entries = await api('GET', '/api/v1/fs/tree?uri=' + encodeURIComponent(uri) + '&level_limit=3&node_limit=200');
-    if (!entries || entries.length === 0) {
-      el.textContent = 'Empty tree.';
-      return;
+async function renderVectors(el) {
+  const data = await api('/ov/debug/vector/scroll?limit=50');
+  const records = data?.result?.records || [];
+
+  let html = '<h2 style="margin-bottom:16px">Vectors</h2>';
+  html += '<div class="panel"><table><tr><th>ID</th><th>URI</th><th>Type</th><th>Category</th><th>Updated</th></tr>';
+  for (const r of records) {
+    html += `<tr><td style="font-family:monospace;font-size:12px">${escHtml((r.id||'').slice(0,12))}</td><td>${escHtml(r.uri||'')}</td><td>${escHtml(r.context_type||'')}</td><td>${escHtml(r.category||'')}</td><td>${escHtml(r.updated_at||'')}</td></tr>`;
+  }
+  if (records.length === 0) html += '<tr><td colspan="5" class="empty">No vectors</td></tr>';
+  html += '</table></div>';
+  el.innerHTML = html;
+}
+
+async function renderObserver(el) {
+  const [queue, storage, models] = await Promise.all([
+    api('/ov/observer/queue').catch(() => ({})),
+    api('/ov/observer/storage').catch(() => ({})),
+    api('/ov/observer/models').catch(() => ({})),
+  ]);
+
+  let html = '<h2 style="margin-bottom:16px">Observer</h2><div class="grid-2">';
+
+  for (const [label, data] of [['Queue', queue], ['Storage', storage], ['Models', models]]) {
+    const r = data?.result || {};
+    const dotClass = r.is_healthy ? 'ok' : (r.has_errors ? 'err' : 'warn');
+    html += `<div class="panel"><div class="health-card" style="border:none;padding:0"><div class="health-dot ${dotClass}"></div><div class="info"><div class="name">${label}</div><div class="status">${r.status || 'unknown'}</div></div></div>`;
+    if (r.details) {
+      html += '<table style="margin-top:12px">';
+      for (const [k, v] of Object.entries(r.details)) {
+        html += `<tr><td style="color:var(--muted)">${escHtml(k)}</td><td>${typeof v === 'object' ? JSON.stringify(v) : escHtml(String(v))}</td></tr>`;
+      }
+      html += '</table>';
     }
-    el.innerHTML = entries.map(e => {
-      const depth = (e.rel_path || '').split('/').length - 1;
-      const indent = '  '.repeat(depth);
-      const cls = e.isDir ? 'tree-dir' : '';
-      const suffix = e.isDir ? '/' : '';
-      const abstract = e.abstract ? ' — ' + e.abstract.substring(0, 60) : '';
-      return `<div class="tree-item">${indent}<span class="${cls}">${e.name}${suffix}</span><span style="color:var(--muted)">${abstract}</span></div>`;
-    }).join('');
+    html += '</div>';
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function renderTasks(el) {
+  const data = await api('/ov/tasks?limit=50');
+  const tasks = data?.result || [];
+
+  let html = '<h2 style="margin-bottom:16px">Tasks</h2><div class="panel">';
+  html += '<table><tr><th>ID</th><th>Type</th><th>Status</th><th>Created</th></tr>';
+  for (const t of tasks) {
+    const statusColor = t.status === 'completed' ? 'var(--success)' : t.status === 'failed' ? 'var(--danger)' : t.status === 'running' ? 'var(--primary)' : 'var(--muted)';
+    html += `<tr><td style="font-family:monospace;font-size:12px">${escHtml(t.id||'')}</td><td>${escHtml(t.type||'')}</td><td style="color:${statusColor}">${escHtml(t.status||'')}</td><td>${escHtml(t.created_at||'')}</td></tr>`;
+  }
+  if (tasks.length === 0) html += '<tr><td colspan="4" class="empty">No tasks</td></tr>';
+  html += '</table></div>';
+  el.innerHTML = html;
+}
+
+async function viewFile(path) {
+  const el = document.getElementById('main-content');
+  el.innerHTML = '<div class="loading">Loading file...</div>';
+  try {
+    const data = await api('/ov/content/read?uri=viking://resources/' + encodeURIComponent(path));
+    const content = data?.result?.content || data?.content || JSON.stringify(data, null, 2);
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button class="btn" onclick="switchView('files')">Back</button><h2>${escHtml(path)}</h2></div><div class="content-view">${escHtml(content)}</div>`;
   } catch (e) {
-    el.textContent = 'Error: ' + e.message;
+    el.innerHTML = `<div class="panel"><h2>Error</h2><p>${e.message}</p><button class="btn" onclick="switchView('files')">Back</button></div>`;
   }
 }
 
-async function loadWatchList() {
-  try {
-    const tasks = await api('GET', '/api/v1/watch');
-    const el = document.getElementById('watch-list');
-    if (!tasks || tasks.length === 0) {
-      el.textContent = 'No watch tasks.';
-      return;
-    }
-    el.innerHTML = '<table><tr><th>ID</th><th>Source</th><th>Target</th><th>Interval</th><th>Files</th><th>Status</th><th></th></tr>' +
-      tasks.map(t => `<tr>
-        <td style="font-family:monospace;font-size:0.75rem">${(t.id||'').substring(0,8)}...</td>
-        <td>${t.source_path}</td>
-        <td style="color:var(--accent)">${t.target_uri}</td>
-        <td>${t.interval_minutes}m</td>
-        <td>${Object.keys(t.file_hashes||{}).length}</td>
-        <td>${t.active ? '<span style="color:var(--success)">Active</span>' : '<span style="color:var(--muted)">Inactive</span>'}</td>
-        <td><button class="secondary" style="padding:4px 8px;font-size:0.75rem" onclick="cancelWatch('${t.id}')">Cancel</button></td>
-      </tr>`).join('') + '</table>';
-  } catch (e) {
-    document.getElementById('watch-list').textContent = 'Error: ' + e.message;
+function navigateTo(name) {
+  currentPath = currentPath ? currentPath + '/' + name : name;
+  renderFiles(document.getElementById('main-content'));
+}
+
+function navigateUp() {
+  const parts = currentPath.split('/');
+  parts.pop();
+  currentPath = parts.join('/');
+  renderFiles(document.getElementById('main-content'));
+}
+
+function navigateToBreadcrumb(idx) {
+  const parts = currentPath.split('/');
+  currentPath = parts.slice(0, idx + 1).join('/');
+  renderFiles(document.getElementById('main-content'));
+}
+
+function renderBreadcrumb(path) {
+  let html = '<div class="breadcrumb"><span onclick="currentPath=\'\';renderFiles(document.getElementById(\'main-content\'))">root</span>';
+  if (path) {
+    const parts = path.split('/');
+    parts.forEach((p, i) => {
+      html += ` / `;
+      if (i === parts.length - 1) {
+        html += `<span class="current">${escHtml(p)}</span>`;
+      } else {
+        html += `<span onclick="navigateToBreadcrumb(${i})">${escHtml(p)}</span>`;
+      }
+    });
   }
+  html += '</div>';
+  return html;
 }
 
-async function createWatch() {
-  const source = document.getElementById('watch-source').value;
-  const target = document.getElementById('watch-target').value;
-  const interval = parseInt(document.getElementById('watch-interval').value) || 60;
-  if (!source || !target) { alert('Source path and target URI are required'); return; }
-  try {
-    await api('POST', '/api/v1/watch', { source_path: source, target_uri: target, interval_minutes: interval });
-    loadWatchList();
-  } catch (e) { alert('Error: ' + e.message); }
+function formatUptime(sec) {
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec/60) + 'm';
+  if (sec < 86400) return Math.floor(sec/3600) + 'h ' + Math.floor((sec%3600)/60) + 'm';
+  return Math.floor(sec/86400) + 'd ' + Math.floor((sec%86400)/3600) + 'h';
 }
 
-async function cancelWatch(id) {
-  try {
-    await fetch(API + '/api/v1/watch/' + id, { method: 'DELETE' });
-    loadWatchList();
-  } catch (e) { alert('Error: ' + e.message); }
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024, sizes = ['B','KB','MB','GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-async function loadMetrics() {
-  try {
-    const text = await fetch(API + '/metrics').then(r => r.text());
-    document.getElementById('metrics-output').textContent = text;
-  } catch (e) {
-    document.getElementById('metrics-output').textContent = 'Error: ' + e.message;
-  }
-}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escapeJS(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
-loadDashboard();
-loadWatchList();
-document.getElementById('search-query').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
-document.getElementById('browse-uri').addEventListener('keydown', e => { if (e.key === 'Enter') doBrowse(); });
-setInterval(loadDashboard, 30000);
+checkHealth();
+setInterval(checkHealth, 15000);
+render();
 </script>
 </body>
 </html>

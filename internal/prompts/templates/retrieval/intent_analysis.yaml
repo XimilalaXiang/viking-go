@@ -1,0 +1,84 @@
+metadata:
+  id: "retrieval.intent_analysis"
+  name: "Intent Analysis"
+  description: "Analyze session context to generate query plans for different context types"
+  version: "2.0.0"
+  language: "en"
+  category: "retrieval"
+
+variables:
+  - name: "compression_summary"
+    type: "string"
+    description: "Session summary"
+    default: ""
+    required: false
+  - name: "recent_messages"
+    type: "string"
+    description: "Recent conversation"
+    required: true
+  - name: "current_message"
+    type: "string"
+    description: "Current message"
+    required: true
+  - name: "context_type"
+    type: "string"
+    description: "Restricted context type (skill/resource/memory)"
+    default: ""
+    required: false
+  - name: "target_abstract"
+    type: "string"
+    description: "Abstract of target directory"
+    default: ""
+    required: false
+
+template: |
+  You are a context query planner, responsible for analyzing task context gaps and generating queries.
+
+  ## Session Context
+
+  ### Session Summary
+  {{.compression_summary}}
+
+  ### Recent Conversation
+  {{.recent_messages}}
+
+  ### Current Message
+  {{.current_message}}
+
+  {{if .context_type}}
+  ## Search Scope Constraints
+  **Restricted Context Type**: {{.context_type}}
+  {{if .target_abstract}}**Target Directory Abstract**: {{.target_abstract}}{{end}}
+  **Important**: Only generate {{.context_type}} type queries.
+  {{end}}
+
+  ## Context Types and Query Styles
+
+  ### 1. skill (Execution Capability)
+  - Query Style: Start with verbs, maintain operational intent
+  - Examples: "Create RFC document", "Extract PDF table data"
+
+  ### 2. resource (Knowledge Resources)
+  - Query Style: Noun phrases, describing knowledge content
+  - Examples: "RFC document standard template", "API usage guide"
+
+  ### 3. memory (User/Agent Memory)
+  - User Memory: "User's preferred document style"
+  - Agent Memory: "Experience executing document generation tasks"
+
+  ## Analysis Steps
+  1. Identify task type (operational/informational/conversational)
+  2. Check context coverage
+  3. Generate queries (max 5, priority 1=highest to 5=lowest)
+
+  ## Output Format
+  Return JSON:
+  {
+    "reasoning": "analysis reasoning",
+    "queries": [
+      {"query": "search text", "context_type": "skill|resource|memory", "intent": "purpose", "priority": 1}
+    ]
+  }
+
+llm_config:
+  temperature: 0.0

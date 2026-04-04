@@ -1,0 +1,39 @@
+metadata:
+  id: "parsing.semantic_grouping"
+  name: "Semantic Content Grouping"
+  description: "Group document chunks into semantically coherent sections"
+  version: "1.0.0"
+  language: "en"
+  category: "parsing"
+
+variables:
+  - name: "chunks"
+    type: "string"
+    description: "Document chunks to group"
+    required: true
+  - name: "file_name"
+    type: "string"
+    description: "Source file name"
+    required: true
+
+template: |
+  Group the following document chunks into semantically coherent sections.
+
+  Source: {{.file_name}}
+
+  Chunks:
+  {{.chunks}}
+
+  Return JSON:
+  {
+    "groups": [
+      {
+        "title": "section title",
+        "chunk_indices": [0, 1, 2],
+        "summary": "brief description of this section"
+      }
+    ]
+  }
+
+llm_config:
+  temperature: 0.0

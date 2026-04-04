@@ -1,0 +1,42 @@
+metadata:
+  id: "processing.tool_chain_analysis"
+  name: "Tool Chain Analysis"
+  description: "Analyze tool call chains to identify optimization opportunities"
+  version: "1.0.0"
+  language: "en"
+  category: "processing"
+
+variables:
+  - name: "tool_calls"
+    type: "string"
+    description: "Sequence of tool calls"
+    required: true
+  - name: "outcome"
+    type: "string"
+    description: "Final outcome"
+    required: true
+
+template: |
+  Analyze the following tool call chain and identify patterns:
+
+  Tool Calls:
+  {{.tool_calls}}
+
+  Final Outcome: {{.outcome}}
+
+  Analyze:
+  1. Tool call sequence and dependencies
+  2. Redundant or unnecessary calls
+  3. Optimization opportunities
+  4. Reusable tool chain patterns
+
+  Return JSON:
+  {
+    "chain_summary": "brief description",
+    "redundant_calls": ["call_id"],
+    "optimizations": ["suggestion"],
+    "reusable_pattern": "pattern description or null"
+  }
+
+llm_config:
+  temperature: 0.0

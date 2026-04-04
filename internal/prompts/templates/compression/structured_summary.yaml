@@ -1,0 +1,47 @@
+metadata:
+  id: "compression.structured_summary"
+  name: "Structured Session Summary"
+  description: "Generate a structured summary of a conversation session"
+  version: "1.0.0"
+  language: "en"
+  category: "compression"
+
+variables:
+  - name: "messages"
+    type: "string"
+    description: "Conversation messages to summarize"
+    required: true
+  - name: "previous_summary"
+    type: "string"
+    description: "Previous summary to build upon"
+    required: false
+    default: ""
+  - name: "output_language"
+    type: "string"
+    description: "Output language"
+    required: false
+    default: "auto"
+
+template: |
+  Generate a structured summary of the following conversation.
+
+  {{if .previous_summary}}
+  ## Previous Summary
+  {{.previous_summary}}
+  {{end}}
+
+  ## Conversation
+  {{.messages}}
+
+  Output language: {{.output_language}}
+
+  Produce a concise, structured summary covering:
+  1. Main topics discussed
+  2. Decisions made
+  3. Action items or next steps
+  4. Key technical details mentioned
+
+  Return plain text summary, no JSON.
+
+llm_config:
+  temperature: 0.0

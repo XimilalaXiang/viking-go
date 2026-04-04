@@ -6,13 +6,13 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ximilala/viking-go/internal/agent"
 	ctx "github.com/ximilala/viking-go/internal/context"
-	"github.com/ximilala/viking-go/internal/metrics"
 	"github.com/ximilala/viking-go/internal/indexer"
+	"github.com/ximilala/viking-go/internal/metrics"
+	"github.com/ximilala/viking-go/internal/queue"
 	"github.com/ximilala/viking-go/internal/retriever"
 	"github.com/ximilala/viking-go/internal/session"
 	"github.com/ximilala/viking-go/internal/storage"
@@ -22,20 +22,24 @@ import (
 
 // Server is the HTTP API server for viking-go.
 type Server struct {
-	store      *storage.Store
-	vfs        *vikingfs.VikingFS
-	retriever  *retriever.HierarchicalRetriever
-	indexer    *indexer.Indexer
-	sessionMgr *session.Manager
-	watchMgr   *watch.Manager
+	store       *storage.Store
+	vfs         *vikingfs.VikingFS
+	retriever   *retriever.HierarchicalRetriever
+	indexer     *indexer.Indexer
+	sessionMgr  *session.Manager
+	watchMgr    *watch.Manager
 	agentBridge *agent.Bridge
-	mux        *http.ServeMux
-	authMode   string
-	rootKey    string
+	apiKeyMgr   *APIKeyManager
+	taskTracker *TaskTracker
+	embQueue    *queue.EmbeddingQueue
+	mux         *http.ServeMux
+	authMode    string
+	rootKey     string
+	startTime   time.Time
 }
 
 // NewServer creates a new API server.
-func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, authMode, rootKey string, watchMgr *watch.Manager, bridge *agent.Bridge) *Server {
+func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.HierarchicalRetriever, idx *indexer.Indexer, authMode, rootKey string, watchMgr *watch.Manager, bridge *agent.Bridge, embQueue *queue.EmbeddingQueue) *Server {
 	s := &Server{
 		store:       store,
 		vfs:         vfs,
@@ -44,10 +48,21 @@ func NewServer(store *storage.Store, vfs *vikingfs.VikingFS, ret *retriever.Hier
 		sessionMgr:  session.NewManager(vfs),
 		watchMgr:    watchMgr,
 		agentBridge: bridge,
+		taskTracker: NewTaskTracker(),
+		embQueue:    embQueue,
 		mux:         http.NewServeMux(),
 		authMode:    authMode,
 		rootKey:     rootKey,
+		startTime:   time.Now(),
 	}
+
+	if authMode == "api_key" && rootKey != "" {
+		s.apiKeyMgr = NewAPIKeyManager(rootKey, vfs.RootDir())
+		if err := s.apiKeyMgr.Load(); err != nil {
+			log.Printf("Warning: failed to load API keys: %v", err)
+		}
+	}
+
 	s.registerRoutes()
 	return s
 }
@@ -115,40 +130,117 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/v1/agent/start", s.withAuth(s.handleAgentStart))
 	s.mux.HandleFunc("POST /api/v1/agent/end", s.withAuth(s.handleAgentEnd))
 	s.mux.HandleFunc("POST /api/v1/agent/compact", s.withAuth(s.handleAgentCompact))
+
+	// Admin (root-only)
+	s.mux.HandleFunc("GET /api/v1/admin/accounts", s.withAuth(s.handleListAccounts))
+	s.mux.HandleFunc("POST /api/v1/admin/accounts", s.withAuth(s.handleCreateAccount))
+	s.mux.HandleFunc("GET /api/v1/admin/accounts/{account_id}/users", s.withAuth(s.handleListUsers))
+	s.mux.HandleFunc("POST /api/v1/admin/accounts/{account_id}/users", s.withAuth(s.handleRegisterUser))
+	s.mux.HandleFunc("PUT /api/v1/admin/accounts/{account_id}/users/{user_id}/role", s.withAuth(s.handleSetUserRole))
+	s.mux.HandleFunc("DELETE /api/v1/admin/accounts/{account_id}/users/{user_id}", s.withAuth(s.handleDeleteUser))
+
+	// Pack (export/import)
+	s.mux.HandleFunc("POST /api/v1/pack/export", s.withAuth(s.handlePackExport))
+	s.mux.HandleFunc("POST /api/v1/pack/import", s.withAuth(s.handlePackImport))
+
+	// Debug
+	s.mux.HandleFunc("GET /api/v1/debug/health", s.withAuth(s.handleDebugHealth))
+	s.mux.HandleFunc("GET /api/v1/debug/vector/scroll", s.withAuth(s.handleDebugVectorScroll))
+	s.mux.HandleFunc("GET /api/v1/debug/vector/count", s.withAuth(s.handleDebugVectorCount))
+
+	// Observer
+	s.mux.HandleFunc("GET /api/v1/observer/queue", s.withAuth(s.handleObserverQueue))
+	s.mux.HandleFunc("GET /api/v1/observer/storage", s.withAuth(s.handleObserverStorage))
+	s.mux.HandleFunc("GET /api/v1/observer/models", s.withAuth(s.handleObserverModels))
+	s.mux.HandleFunc("GET /api/v1/observer/system", s.withAuth(s.handleObserverSystem))
+
+	// Stats
+	s.mux.HandleFunc("GET /api/v1/stats/memories", s.withAuth(s.handleStatsMemories))
+	s.mux.HandleFunc("GET /api/v1/stats/sessions/{session_id}", s.withAuth(s.handleStatsSession))
+
+	// Tasks
+	s.mux.HandleFunc("GET /api/v1/tasks", s.withAuth(s.handleListTasks))
+	s.mux.HandleFunc("GET /api/v1/tasks/{task_id}", s.withAuth(s.handleGetTask))
+
+	// Prometheus metrics
+	s.mux.Handle("GET /metrics", metrics.Handler())
 }
 
 // --- Auth middleware ---
 
+const reqCtxKey = "viking_req_ctx"
+
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.authMode == "dev" {
+		if s.authMode == "dev" || s.authMode == "trusted" {
 			next(w, r)
 			return
 		}
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			writeError(w, http.StatusUnauthorized, "missing Authorization header")
+
+		rawKey := extractAPIKey(
+			r.Header.Get("X-Api-Key"),
+			r.Header.Get("Authorization"),
+		)
+		if rawKey == "" {
+			writeError(w, http.StatusUnauthorized, "missing API key")
 			return
 		}
-		key := strings.TrimPrefix(auth, "Bearer ")
-		if key != s.rootKey {
-			writeError(w, http.StatusForbidden, "invalid API key")
-			return
+
+		if s.apiKeyMgr != nil {
+			entry := s.apiKeyMgr.Authenticate(rawKey)
+			if entry == nil {
+				writeError(w, http.StatusForbidden, "invalid API key")
+				return
+			}
+			r.Header.Set("X-Resolved-Role", string(entry.Role))
+			if entry.AccountID != "" {
+				r.Header.Set("X-Resolved-Account", entry.AccountID)
+			}
+			if entry.UserID != "" {
+				r.Header.Set("X-Resolved-User", entry.UserID)
+			}
+		} else {
+			if rawKey != s.rootKey {
+				writeError(w, http.StatusForbidden, "invalid API key")
+				return
+			}
+			r.Header.Set("X-Resolved-Role", string(ctx.RoleRoot))
 		}
+
 		next(w, r)
 	}
 }
 
 func (s *Server) reqCtx(r *http.Request) *ctx.RequestContext {
-	accountID := r.Header.Get("X-Account-ID")
-	userID := r.Header.Get("X-User-ID")
-	agentID := r.Header.Get("X-Agent-ID")
+	resolvedRole := r.Header.Get("X-Resolved-Role")
+	resolvedAccount := r.Header.Get("X-Resolved-Account")
+	resolvedUser := r.Header.Get("X-Resolved-User")
 
+	accountID := resolvedAccount
+	if accountID == "" {
+		accountID = r.Header.Get("X-Account-ID")
+	}
+	if accountID == "" {
+		accountID = r.Header.Get("X-OpenViking-Account")
+	}
 	if accountID == "" {
 		accountID = "default"
 	}
+
+	userID := resolvedUser
+	if userID == "" {
+		userID = r.Header.Get("X-User-ID")
+	}
+	if userID == "" {
+		userID = r.Header.Get("X-OpenViking-User")
+	}
 	if userID == "" {
 		userID = "default"
+	}
+
+	agentID := r.Header.Get("X-Agent-ID")
+	if agentID == "" {
+		agentID = r.Header.Get("X-OpenViking-Agent")
 	}
 	if agentID == "" {
 		agentID = "default"
@@ -161,10 +253,30 @@ func (s *Server) reqCtx(r *http.Request) *ctx.RequestContext {
 	}
 
 	role := ctx.RoleUser
-	if s.authMode == "dev" {
+	switch ctx.Role(resolvedRole) {
+	case ctx.RoleRoot:
 		role = ctx.RoleRoot
+	case ctx.RoleAdmin:
+		role = ctx.RoleAdmin
+	default:
+		if s.authMode == "dev" || s.authMode == "trusted" {
+			role = ctx.RoleRoot
+		}
 	}
+
 	return ctx.NewRequestContext(user, role)
+}
+
+func (s *Server) requireRole(r *http.Request, minRole ctx.Role) bool {
+	rc := s.reqCtx(r)
+	switch minRole {
+	case ctx.RoleRoot:
+		return rc.Role == ctx.RoleRoot
+	case ctx.RoleAdmin:
+		return rc.Role == ctx.RoleRoot || rc.Role == ctx.RoleAdmin
+	default:
+		return true
+	}
 }
 
 // --- System handlers ---
@@ -774,6 +886,151 @@ func (s *Server) handleAgentCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// --- Admin handlers ---
+
+func (s *Server) handleListAccounts(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": s.apiKeyMgr.ListAccounts()})
+}
+
+func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	var req struct {
+		AccountID   string `json:"account_id"`
+		AdminUserID string `json:"admin_user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.AccountID == "" || req.AdminUserID == "" {
+		writeError(w, http.StatusBadRequest, "account_id and admin_user_id required")
+		return
+	}
+	key, err := s.apiKeyMgr.CreateAccount(req.AccountID, req.AdminUserID)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"account_id":   req.AccountID,
+		"admin_user":   req.AdminUserID,
+		"api_key":      key,
+	})
+}
+
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	accountID := r.PathValue("account_id")
+	users, err := s.apiKeyMgr.ListUsers(accountID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+}
+
+func (s *Server) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	accountID := r.PathValue("account_id")
+	var req struct {
+		UserID string `json:"user_id"`
+		Role   string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.UserID == "" {
+		writeError(w, http.StatusBadRequest, "user_id required")
+		return
+	}
+	if req.Role == "" {
+		req.Role = "user"
+	}
+	key, err := s.apiKeyMgr.RegisterUser(accountID, req.UserID, req.Role)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"user_id": req.UserID,
+		"role":    req.Role,
+		"api_key": key,
+	})
+}
+
+func (s *Server) handleSetUserRole(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	accountID := r.PathValue("account_id")
+	userID := r.PathValue("user_id")
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := s.apiKeyMgr.SetUserRole(accountID, userID, req.Role); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRole(r, ctx.RoleRoot) {
+		writeError(w, http.StatusForbidden, "root access required")
+		return
+	}
+	if s.apiKeyMgr == nil {
+		writeError(w, http.StatusServiceUnavailable, "API key management not enabled")
+		return
+	}
+	accountID := r.PathValue("account_id")
+	userID := r.PathValue("user_id")
+	if err := s.apiKeyMgr.DeleteUser(accountID, userID); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // --- Helpers ---

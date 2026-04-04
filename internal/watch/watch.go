@@ -27,18 +27,20 @@ const (
 
 // Task represents a directory watch/sync task.
 type Task struct {
-	ID            string    `json:"id"`
-	SourcePath    string    `json:"source_path"`
-	TargetURI     string    `json:"target_uri"`
-	Interval      float64   `json:"interval_minutes"`
-	BuildIndex    bool      `json:"build_index"`
-	Reason        string    `json:"reason,omitempty"`
-	Active        bool      `json:"active"`
-	CreatedAt     time.Time `json:"created_at"`
-	LastRun       time.Time `json:"last_run,omitempty"`
-	NextRun       time.Time `json:"next_run"`
-	AccountID     string    `json:"account_id"`
+	ID            string            `json:"id"`
+	SourcePath    string            `json:"source_path"`
+	SourceType    SourceType        `json:"source_type"`
+	TargetURI     string            `json:"target_uri"`
+	Interval      float64           `json:"interval_minutes"`
+	BuildIndex    bool              `json:"build_index"`
+	Reason        string            `json:"reason,omitempty"`
+	Active        bool              `json:"active"`
+	CreatedAt     time.Time         `json:"created_at"`
+	LastRun       time.Time         `json:"last_run,omitempty"`
+	NextRun       time.Time         `json:"next_run"`
+	AccountID     string            `json:"account_id"`
 	FileHashes    map[string]string `json:"file_hashes,omitempty"`
+	LocalCache    string            `json:"local_cache,omitempty"`
 }
 
 func (t *Task) intervalDuration() time.Duration {
@@ -107,31 +109,42 @@ func (m *Manager) save() {
 }
 
 // Create registers a new watch task. Returns the task ID.
+// sourcePath can be a local directory, an HTTP(S) URL, or a git repository URL.
 func (m *Manager) Create(sourcePath, targetURI, reason string, intervalMinutes float64, buildIndex bool) (string, error) {
-	absPath, err := filepath.Abs(sourcePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return "", fmt.Errorf("stat source: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("source_path must be a directory")
+	srcType := DetectSourceType(sourcePath)
+	resolvedPath := sourcePath
+
+	switch srcType {
+	case SourceLocal:
+		absPath, err := filepath.Abs(sourcePath)
+		if err != nil {
+			return "", fmt.Errorf("resolve path: %w", err)
+		}
+		info, err := os.Stat(absPath)
+		if err != nil {
+			return "", fmt.Errorf("stat source: %w", err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("source_path must be a directory")
+		}
+		resolvedPath = absPath
+	case SourceURL, SourceGit:
+		// Remote sources are validated at execution time
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for _, t := range m.tasks {
-		if t.SourcePath == absPath && t.TargetURI == targetURI && t.Active {
-			return "", fmt.Errorf("active watch already exists for %s → %s (id: %s)", absPath, targetURI, t.ID)
+		if t.SourcePath == resolvedPath && t.TargetURI == targetURI && t.Active {
+			return "", fmt.Errorf("active watch already exists for %s → %s (id: %s)", resolvedPath, targetURI, t.ID)
 		}
 	}
 
 	task := &Task{
 		ID:         uuid.New().String(),
-		SourcePath: absPath,
+		SourcePath: resolvedPath,
+		SourceType: srcType,
 		TargetURI:  targetURI,
 		Interval:   intervalMinutes,
 		BuildIndex: buildIndex,
@@ -253,12 +266,23 @@ func (s *Scheduler) checkAndExecute() {
 }
 
 func (s *Scheduler) executeTask(task *Task) {
-	log.Printf("[Watch] executing task %s: %s → %s", task.ID, task.SourcePath, task.TargetURI)
+	log.Printf("[Watch] executing task %s (%s): %s → %s", task.ID, task.SourceType, task.SourcePath, task.TargetURI)
 	start := time.Now()
 
-	changed, added, removed, err := s.syncDirectory(task)
-	if err != nil {
-		log.Printf("[Watch] task %s sync error: %v", task.ID, err)
+	var syncErr error
+	var changed, added, removed int
+
+	switch task.SourceType {
+	case SourceURL:
+		added, syncErr = s.syncURL(task)
+	case SourceGit:
+		changed, added, removed, syncErr = s.syncGit(task)
+	default:
+		changed, added, removed, syncErr = s.syncDirectory(task)
+	}
+
+	if syncErr != nil {
+		log.Printf("[Watch] task %s sync error: %v", task.ID, syncErr)
 	}
 
 	if task.BuildIndex && s.indexer != nil && (changed > 0 || added > 0) {
@@ -278,6 +302,67 @@ func (s *Scheduler) executeTask(task *Task) {
 	s.manager.save()
 	log.Printf("[Watch] task %s done in %s (added=%d, changed=%d, removed=%d)",
 		task.ID, time.Since(start).Round(time.Millisecond), added, changed, removed)
+}
+
+// syncURL downloads a URL and writes its content into VikingFS.
+func (s *Scheduler) syncURL(task *Task) (added int, err error) {
+	cacheDir := s.cacheDir(task)
+	destPath, err := DownloadURL(task.SourcePath, cacheDir, 60*time.Second)
+	if err != nil {
+		return 0, err
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		return 0, fmt.Errorf("read downloaded file: %w", err)
+	}
+
+	hash := sha256Hash(data)
+	if task.FileHashes["_url"] == hash {
+		return 0, nil
+	}
+
+	filename := filepath.Base(destPath)
+	targetURI := strings.TrimRight(task.TargetURI, "/") + "/" + filename
+	if err := s.vfs.WriteString(targetURI, string(data), s.reqCtx); err != nil {
+		return 0, fmt.Errorf("write %s: %w", targetURI, err)
+	}
+
+	s.manager.mu.Lock()
+	task.FileHashes["_url"] = hash
+	task.LocalCache = destPath
+	s.manager.mu.Unlock()
+
+	return 1, nil
+}
+
+// syncGit clones or pulls a git repository, then syncs it like a local directory.
+func (s *Scheduler) syncGit(task *Task) (changed, added, removed int, err error) {
+	cacheDir := s.cacheDir(task)
+	repoDir := filepath.Join(cacheDir, "repo")
+
+	if err := GitClone(task.SourcePath, repoDir); err != nil {
+		return 0, 0, 0, err
+	}
+
+	origSource := task.SourcePath
+	task.SourcePath = repoDir
+	changed, added, removed, err = s.syncDirectory(task)
+	task.SourcePath = origSource
+
+	s.manager.mu.Lock()
+	task.LocalCache = repoDir
+	s.manager.mu.Unlock()
+
+	return
+}
+
+func (s *Scheduler) cacheDir(task *Task) string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = os.TempDir()
+	}
+	return filepath.Join(home, ".viking-cache", "watch", task.ID)
 }
 
 // syncDirectory walks the source directory, detects changes via SHA256,

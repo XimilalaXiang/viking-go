@@ -1,0 +1,43 @@
+metadata:
+  id: "semantic.code_summary"
+  name: "Code File Summary"
+  description: "Generate summary for code files from full source"
+  version: "1.0.0"
+  language: "en"
+  category: "semantic"
+
+variables:
+  - name: "file_name"
+    type: "string"
+    description: "File name with extension"
+    required: true
+  - name: "content"
+    type: "string"
+    description: "Full source code"
+    required: true
+    max_length: 10000
+  - name: "output_language"
+    type: "string"
+    description: "Language code for output"
+    required: false
+    default: "en"
+
+template: |
+  Output Language: {{.output_language}}
+
+  You are a code analysis expert. Generate a concise summary (80-200 words) for the following source file.
+
+  File: {{.file_name}}
+  Source:
+  {{.content}}
+
+  Output requirements:
+  - Length: 80-200 words
+  - Describe the file's purpose and main functionality
+  - List key exports (functions, classes, types)
+  - Note important dependencies
+  - Include technical keywords for semantic search
+  - Output plain text, no JSON
+
+llm_config:
+  temperature: 0.0

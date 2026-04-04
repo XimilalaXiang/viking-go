@@ -19,83 +19,59 @@ type ParseResult struct {
 	Content  string        `json:"content"`
 	Children []ParseResult `json:"children,omitempty"`
 	IsDir    bool          `json:"is_dir"`
+	Format   string        `json:"format,omitempty"`
 }
 
 // Parser handles document parsing and ingestion into VikingFS.
 type Parser struct {
-	vfs     *vikingfs.VikingFS
-	indexer *indexer.Indexer
+	vfs      *vikingfs.VikingFS
+	indexer  *indexer.Indexer
+	registry *Registry
 }
 
-// NewParser creates a new document parser.
+// NewParser creates a new document parser with the built-in registry.
 func NewParser(vfs *vikingfs.VikingFS, idx *indexer.Indexer) *Parser {
-	return &Parser{vfs: vfs, indexer: idx}
+	return &Parser{vfs: vfs, indexer: idx, registry: NewRegistry()}
 }
 
-// SupportedExtensions lists file extensions this parser can handle.
-var SupportedExtensions = map[string]bool{
-	".md":       true,
-	".txt":      true,
-	".text":     true,
-	".markdown": true,
-	".rst":      true,
-	".org":      true,
-	".json":     true,
-	".yaml":     true,
-	".yml":      true,
-	".toml":     true,
-	".xml":      true,
-	".csv":      true,
-	".go":       true,
-	".py":       true,
-	".js":       true,
-	".ts":       true,
-	".java":     true,
-	".c":        true,
-	".cpp":      true,
-	".h":        true,
-	".rs":       true,
-	".rb":       true,
-	".php":      true,
-	".sh":       true,
-	".bash":     true,
-	".sql":      true,
-	".html":     true,
-	".css":      true,
-}
+// SupportedExtensions returns a dynamically-computed set from the registry.
+// Kept for backward compatibility.
+var SupportedExtensions = func() map[string]bool {
+	r := NewRegistry()
+	m := make(map[string]bool)
+	for _, ext := range r.AllExtensions() {
+		m[ext] = true
+	}
+	return m
+}()
 
 // ImportFile imports a local file into VikingFS at the given URI.
+// It uses the parser registry to select the correct parser for the file type.
 func (p *Parser) ImportFile(localPath, targetURI string, reqCtx *ctx.RequestContext) (*ParseResult, error) {
-	data, err := os.ReadFile(localPath)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", localPath, err)
-	}
-
 	ext := strings.ToLower(filepath.Ext(localPath))
-	if !SupportedExtensions[ext] {
-		return nil, fmt.Errorf("unsupported file type: %s", ext)
-	}
 
-	content := string(data)
-	title := filepath.Base(localPath)
-	abstract := extractAbstract(content, title)
-
-	if err := p.vfs.WriteContext(targetURI, abstract, "", content, title, reqCtx); err != nil {
-		return nil, fmt.Errorf("write to VikingFS: %w", err)
-	}
-
-	if p.indexer != nil {
-		if err := p.indexer.IndexFile(targetURI, abstract, reqCtx); err != nil {
-			fmt.Printf("Warning: index %s: %v\n", targetURI, err)
+	fp := p.registry.ParserFor(localPath)
+	if fp != nil {
+		result, err := fp.Parse(localPath, true)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", localPath, err)
 		}
+
+		if err := p.vfs.WriteContext(targetURI, result.Abstract, "", result.Content, result.Title, reqCtx); err != nil {
+			return nil, fmt.Errorf("write to VikingFS: %w", err)
+		}
+
+		if p.indexer != nil {
+			if err := p.indexer.IndexFile(targetURI, result.Abstract, reqCtx); err != nil {
+				fmt.Printf("Warning: index %s: %v\n", targetURI, err)
+			}
+		}
+
+		result.URI = targetURI
+		return result, nil
 	}
 
-	return &ParseResult{
-		URI:      targetURI,
-		Title:    title,
-		Abstract: abstract,
-		Content:  content,
-	}, nil
+	return nil, fmt.Errorf("unsupported file type: %s", ext)
 }
 
 // ImportDirectory recursively imports a local directory into VikingFS.
@@ -140,8 +116,7 @@ func (p *Parser) ImportDirectory(localDir, targetURI string, reqCtx *ctx.Request
 			}
 			result.Children = append(result.Children, *child)
 		} else {
-			ext := strings.ToLower(filepath.Ext(name))
-			if !SupportedExtensions[ext] {
+			if !p.registry.CanParse(name) {
 				continue
 			}
 			child, err := p.ImportFile(childPath, childURI, reqCtx)

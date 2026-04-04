@@ -1,0 +1,45 @@
+memory_type: skills
+description: "Skill execution memory template for recording skill usage patterns"
+directory: "viking://agent/{{.agent_space}}/memories/skills"
+filename_template: "{{.skill_name}}.md"
+enabled: true
+content_template: |
+  Skill: {{.skill_name}}
+
+  - Best for: {{.best_for}}
+  - Recommended flow: {{.recommended_flow}}
+  - Key dependencies: {{.key_dependencies}}
+  - Common failures: {{.common_failures}}
+  - Recommendation: {{.recommendation}}
+
+  {{.guidelines}}
+
+fields:
+  - name: skill_name
+    type: string
+    description: "Skill name"
+    merge_op: immutable
+  - name: best_for
+    type: string
+    description: "Best use cases"
+    merge_op: patch
+  - name: recommended_flow
+    type: string
+    description: "Recommended execution flow"
+    merge_op: patch
+  - name: key_dependencies
+    type: string
+    description: "Prerequisites and inputs needed"
+    merge_op: patch
+  - name: common_failures
+    type: string
+    description: "Common failure patterns"
+    merge_op: patch
+  - name: recommendation
+    type: string
+    description: "Short actionable recommendations"
+    merge_op: patch
+  - name: guidelines
+    type: string
+    description: "Full usage guidelines"
+    merge_op: patch
